@@ -24,7 +24,7 @@ const LocationInput: FC<LocationInputProps> = ({
   onChangeText,
   ...props
 }) => {
-  const dotColor = type === "pickup" ? "green" : "red";
+  const dotColor = type === "pickup" ? "#ac1d17" : "red";
 
   return (
     <View

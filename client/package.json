@@ -1,11 +1,17 @@
 {
-  "name": "ride_app",
+  "name": "xigoa",
   "main": "expo-router/entry",
   "version": "1.0.0",
+  "engines": {
+    "node": ">=20.19.4"
+  },
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
+    "eas:build:apk": "eas build -p android --profile preview",
+    "eas:build:android": "eas build -p android --profile production",
+    "android:apk": "cd android && ./gradlew assembleRelease",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "jest --watchAll",
@@ -15,6 +21,7 @@
     "preset": "jest-expo"
   },
   "dependencies": {
+    "@expo/ngrok": "^4.1.3",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-picker/picker": "^2.11.4",
@@ -47,7 +54,6 @@
     "react-native-countdown-circle-timer": "^3.2.1",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-maps": "^1.20.1",
-    "react-native-maps-directions": "^1.9.0",
     "react-native-mmkv": "^2.12.2",
     "react-native-reanimated": "^4.1.6",
     "react-native-responsive-fontsize": "^0.5.1",

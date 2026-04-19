@@ -1,13 +1,13 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   Alert,
   Linking,
 } from 'react-native';
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from 'expo-status-bar';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,8 +16,10 @@ import CustomText from '@/components/shared/CustomText';
 import OrderStatusTimeline from '@/components/eats/OrderStatusTimeline';
 import { Colors } from '@/utils/Constants';
 import { getFoodOrderById, cancelFoodOrder, rateFoodOrder } from '@/service/foodOrderService';
+import { getRouteInfo } from '@/utils/mapUtils';
 import { useWS } from '@/service/WSProvider';
 import RatingModal from '@/components/shared/RatingModal';
+import { formatCurrency } from '@/utils/currency';
 
 const OrderTrackingScreen = () => {
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
@@ -26,6 +28,26 @@ const OrderTrackingScreen = () => {
   const [order, setOrder] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showRating, setShowRating] = useState(false);
+  const [liveEtaMinutes, setLiveEtaMinutes] = useState<number | null>(null);
+  const etaDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refreshEta = useCallback(
+    (courierLocation: { latitude: number; longitude: number }, deliveryAddress: { latitude?: number; longitude?: number }) => {
+      if (!deliveryAddress?.latitude || !deliveryAddress?.longitude) return;
+      if (etaDebounceRef.current) clearTimeout(etaDebounceRef.current);
+      etaDebounceRef.current = setTimeout(async () => {
+        const route = await getRouteInfo(
+          { latitude: courierLocation.latitude, longitude: courierLocation.longitude },
+          { latitude: deliveryAddress.latitude!, longitude: deliveryAddress.longitude! },
+          "BICYCLE"
+        );
+        if (route?.durationSeconds) {
+          setLiveEtaMinutes(Math.max(1, Math.round(route.durationSeconds / 60)));
+        }
+      }, 8000);
+    },
+    []
+  );
 
   const fetchOrder = useCallback(async () => {
     if (!orderId) return;
@@ -56,10 +78,15 @@ const OrderTrackingScreen = () => {
 
     on('courier:location', (data: any) => {
       if (data.orderId === orderId) {
-        setOrder((prev: any) => prev ? { 
-          ...prev, 
-          courierLocation: data.location 
-        } : prev);
+        setOrder((prev: any) => {
+          if (!prev) return prev;
+          const updated = { ...prev, courierLocation: data.location };
+          const isActive = ['courier_assigned', 'picked_up', 'in_transit'].includes(prev.status);
+          if (isActive && data.location && prev.deliveryAddress) {
+            refreshEta(data.location, prev.deliveryAddress);
+          }
+          return updated;
+        });
       }
     });
 
@@ -182,13 +209,19 @@ const OrderTrackingScreen = () => {
               <CustomText fontFamily="SemiBold" fontSize={16} style={styles.statusTitle}>
                 {getStatusMessage()}
               </CustomText>
-              {order.estimatedDeliveryTime && order.status !== 'delivered' && (
-                <CustomText fontFamily="Regular" fontSize={13} style={styles.statusSubtitle}>
-                  Estimated arrival: {new Date(order.estimatedDeliveryTime).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </CustomText>
+              {order.status !== 'delivered' && order.status !== 'cancelled' && (
+                liveEtaMinutes != null ? (
+                  <CustomText fontFamily="Regular" fontSize={13} style={styles.statusSubtitle}>
+                    {liveEtaMinutes <= 1 ? 'Arriving now' : `Arriving in ${liveEtaMinutes} min`}
+                  </CustomText>
+                ) : order.estimatedDeliveryTime ? (
+                  <CustomText fontFamily="Regular" fontSize={13} style={styles.statusSubtitle}>
+                    Estimated arrival: {new Date(order.estimatedDeliveryTime).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </CustomText>
+                ) : null
               )}
             </View>
           </View>
@@ -222,7 +255,14 @@ const OrderTrackingScreen = () => {
                   <Ionicons name="call" size={RFValue(18)} color={Colors.primary} />
                 </TouchableOpacity>
               )}
-              <TouchableOpacity style={styles.actionButton}>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() =>
+                  router.push(
+                    `/customer/delivery/chat/${order.courierId._id ?? order.courierId}?orderId=${orderId}&courierName=${encodeURIComponent(order.courierId.name || '')}&courierPhone=${encodeURIComponent(order.courierId.phone || '')}`
+                  )
+                }
+              >
                 <Ionicons name="chatbubble" size={RFValue(18)} color={Colors.primary} />
               </TouchableOpacity>
             </View>
@@ -256,7 +296,7 @@ const OrderTrackingScreen = () => {
                   {item.name}
                 </CustomText>
                 <CustomText fontFamily="Medium" fontSize={14}>
-                  ${item.subtotal.toFixed(2)}
+                  {formatCurrency(item.subtotal)}
                 </CustomText>
               </View>
             ))}
@@ -269,7 +309,7 @@ const OrderTrackingScreen = () => {
               Subtotal
             </CustomText>
             <CustomText fontFamily="Medium" fontSize={14}>
-              ${order.pricing?.itemsTotal?.toFixed(2) || '0.00'}
+              {formatCurrency(order.pricing?.itemsTotal ?? 0)}
             </CustomText>
           </View>
           <View style={styles.pricingRow}>
@@ -277,7 +317,7 @@ const OrderTrackingScreen = () => {
               Delivery Fee
             </CustomText>
             <CustomText fontFamily="Medium" fontSize={14}>
-              ${order.acceptedBid?.amount?.toFixed(2) || order.pricing?.deliveryFee?.toFixed(2) || '0.00'}
+              {formatCurrency(order.acceptedBid?.amount ?? order.pricing?.deliveryFee ?? 0)}
             </CustomText>
           </View>
           <View style={styles.pricingRow}>
@@ -285,7 +325,7 @@ const OrderTrackingScreen = () => {
               Total
             </CustomText>
             <CustomText fontFamily="Bold" fontSize={16} style={styles.totalAmount}>
-              ${order.pricing?.total?.toFixed(2) || '0.00'}
+              {formatCurrency(order.pricing?.total ?? 0)}
             </CustomText>
           </View>
         </View>
@@ -431,7 +471,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#F0FDF4',
+    backgroundColor: '#FDF2F2',
     justifyContent: 'center',
     alignItems: 'center',
   },

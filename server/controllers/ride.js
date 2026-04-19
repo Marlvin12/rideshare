@@ -1,6 +1,8 @@
 import Ride from "../models/Ride.js";
 import User from "../models/User.js";
+import EarningsTransaction from "../models/EarningsTransaction.js";
 import { BadRequestError, NotFoundError } from "../errors/index.js";
+import logger from "../config/logger.js";
 import { StatusCodes } from "http-status-codes";
 import {
   calculateDistance,
@@ -72,7 +74,7 @@ export const createRide = async (req, res) => {
       ride,
     });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, 'Failed to create ride');
     throw new BadRequestError("Failed to create ride");
   }
 };
@@ -126,7 +128,7 @@ export const acceptRide = async (req, res) => {
       ride,
     });
   } catch (error) {
-    console.error("Error accepting ride:", error);
+    logger.error({ err: error }, 'Failed to accept ride');
     throw new BadRequestError("Failed to accept ride");
   }
 };
@@ -156,13 +158,30 @@ export const updateRideStatus = async (req, res) => {
     }
 
     ride.status = status;
-    
+
     if (status === "ARRIVED") {
       ride.arrivedAt = new Date();
     } else if (status === "COMPLETED") {
       ride.completedAt = new Date();
+      const riderShare = (ride.fare || 0) * 0.8;
+      const riderId = ride.rider?._id ?? ride.rider;
+      if (riderId && riderShare > 0) {
+        await User.findByIdAndUpdate(riderId, {
+          $inc: {
+            "earnings.total": riderShare,
+            "earnings.available": riderShare,
+          },
+        });
+        await EarningsTransaction.create({
+          userId: riderId,
+          amount: riderShare,
+          type: "ride",
+          referenceType: "Ride",
+          referenceId: ride._id,
+        });
+      }
     }
-    
+
     await ride.save();
 
     req.socket.to(`ride_${rideId}`).emit("rideUpdate", ride);
@@ -172,14 +191,41 @@ export const updateRideStatus = async (req, res) => {
       ride,
     });
   } catch (error) {
-    console.error("Error updating ride status:", error);
+    logger.error({ err: error }, 'Failed to update ride status');
     throw new BadRequestError("Failed to update ride status");
   }
+};
+
+export const getRideById = async (req, res) => {
+  const userId = req.user.id;
+  const { rideId } = req.params;
+
+  const ride = await Ride.findById(rideId)
+    .populate('customer', 'name phone')
+    .populate('rider', 'name phone');
+
+  if (!ride) {
+    throw new NotFoundError('Ride not found');
+  }
+
+  const isParticipant =
+    ride.customer?._id?.toString() === userId ||
+    ride.rider?._id?.toString() === userId;
+
+  if (!isParticipant) {
+    throw new NotFoundError('Ride not found');
+  }
+
+  res.status(StatusCodes.OK).json({ ride });
 };
 
 export const getMyRides = async (req, res) => {
   const userId = req.user.id;
   const { status } = req.query;
+
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const skip = (page - 1) * limit;
 
   try {
     const query = {
@@ -190,18 +236,26 @@ export const getMyRides = async (req, res) => {
       query.status = status;
     }
 
-    const rides = await Ride.find(query)
-      .populate("customer", "name phone")
-      .populate("rider", "name phone")
-      .sort({ createdAt: -1 });
+    const [rides, total] = await Promise.all([
+      Ride.find(query)
+        .populate("customer", "name phone")
+        .populate("rider", "name phone")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Ride.countDocuments(query),
+    ]);
 
     res.status(StatusCodes.OK).json({
       message: "Rides retrieved successfully",
       count: rides.length,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
       rides,
     });
   } catch (error) {
-    console.error("Error retrieving rides:", error);
+    logger.error({ err: error }, 'Failed to retrieve rides');
     throw new BadRequestError("Failed to retrieve rides");
   }
 };
@@ -260,7 +314,7 @@ export const submitOffer = async (req, res) => {
       ride,
     });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, 'Failed to submit offer');
     throw new BadRequestError("Failed to submit offer");
   }
 };
@@ -316,7 +370,7 @@ export const acceptOffer = async (req, res) => {
       ride,
     });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, 'Failed to accept offer');
     throw new BadRequestError("Failed to accept offer");
   }
 };
@@ -343,7 +397,7 @@ export const getRideOffers = async (req, res) => {
       suggestedPriceRange: ride.suggestedPriceRange,
     });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, 'Failed to fetch ride offers');
     throw new BadRequestError("Failed to fetch offers");
   }
 };
@@ -406,7 +460,7 @@ export const rateRide = async (req, res) => {
       ride,
     });
   } catch (error) {
-    console.error("Error submitting rating:", error);
+    logger.error({ err: error }, 'Failed to submit rating');
     throw new BadRequestError("Failed to submit rating");
   }
 };

@@ -1,9 +1,17 @@
 import { create } from 'zustand';
 
+function getStoredToken() {
+  try {
+    return typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
+  } catch {
+    return null;
+  }
+}
+
 export const useAuthStore = create((set) => ({
   admin: null,
-  token: localStorage.getItem('adminToken'),
-  isAuthenticated: !!localStorage.getItem('adminToken'),
+  token: getStoredToken(),
+  isAuthenticated: !!getStoredToken(),
   
   login: (token, admin) => {
     localStorage.setItem('adminToken', token);

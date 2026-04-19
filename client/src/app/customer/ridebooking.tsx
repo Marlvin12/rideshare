@@ -1,10 +1,10 @@
 import { View, Text, ScrollView, TouchableOpacity, Image, TextInput, Alert, Keyboard } from "react-native";
-import React, { memo, useCallback, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useRoute } from "@react-navigation/native";
 import { useUserStore } from "@/store/userStore";
 import { rideStyles } from "@/styles/rideStyles";
 import { StatusBar } from "expo-status-bar";
-import { calculateFare, getSuggestedPriceRange } from "@/utils/mapUtils";
+import { calculateFare, getSuggestedPriceRange, getRouteInfo } from "@/utils/mapUtils";
 import RoutesMap from "@/components/customer/RoutesMap";
 import CustomText from "@/components/shared/CustomText";
 import { router } from "expo-router";
@@ -14,6 +14,7 @@ import { commonStyles } from "@/styles/commonStyles";
 import CustomButton from "@/components/shared/CustomButton";
 import { createRide } from "@/service/rideService";
 import { Colors } from "@/utils/Constants";
+import { formatCurrency } from "@/utils/currency";
 
 const RideBooking = () => {
   const route = useRoute() as any;
@@ -22,6 +23,23 @@ const RideBooking = () => {
   const [selectedOption, setSelectedOption] = useState("Bike");
   const [loading, setLoading] = useState(false);
   const [proposedPrice, setProposedPrice] = useState("");
+  const [trafficMinutes, setTrafficMinutes] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!location?.latitude || !item?.drop_latitude) return;
+    let cancelled = false;
+    (async () => {
+      const route = await getRouteInfo(
+        { latitude: parseFloat(location.latitude), longitude: parseFloat(location.longitude) },
+        { latitude: parseFloat(item.drop_latitude), longitude: parseFloat(item.drop_longitude) },
+        "DRIVE"
+      );
+      if (!cancelled && route?.durationSeconds) {
+        setTrafficMinutes(Math.max(1, Math.round(route.durationSeconds / 60)));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [location?.latitude, item?.drop_latitude]);
 
   const farePrices = useMemo(
     () => calculateFare(parseFloat(item?.distanceInKm)),
@@ -42,9 +60,11 @@ const RideBooking = () => {
     [item?.distanceInKm, selectedOption]
   );
 
+  const effectiveMinutes = trafficMinutes ?? farePrices?.estimatedTime ?? 1;
+
   const getDropTime = (additionalMinutes: number = 0) => {
     const now = new Date();
-    now.setMinutes(now.getMinutes() + (farePrices?.estimatedTime || 0) + additionalMinutes);
+    now.setMinutes(now.getMinutes() + effectiveMinutes + additionalMinutes);
     return now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
@@ -53,7 +73,7 @@ const RideBooking = () => {
       {
         type: "Bike",
         seats: 1,
-        time: `${farePrices?.estimatedTime || 1} min`,
+        time: `${effectiveMinutes} min`,
         dropTime: getDropTime(0),
         price: farePrices?.bike,
         isFastest: true,
@@ -62,7 +82,7 @@ const RideBooking = () => {
       {
         type: "Cab Economy",
         seats: 4,
-        time: `${farePrices?.estimatedTime || 1} min`,
+        time: `${effectiveMinutes} min`,
         dropTime: getDropTime(0),
         price: farePrices.cabEconomy,
         icon: require("@/assets/icons/cab.png"),
@@ -70,7 +90,7 @@ const RideBooking = () => {
       {
         type: "Cab Premium",
         seats: 4,
-        time: `${farePrices?.estimatedTime || 1} min`,
+        time: `${effectiveMinutes} min`,
         dropTime: getDropTime(1),
         price: farePrices.cabPremium,
         icon: require("@/assets/icons/cab_premium.png"),
@@ -94,7 +114,7 @@ const RideBooking = () => {
     if (price < priceRange.min) {
       Alert.alert(
         "Price Too Low", 
-        `Your proposed price ($${price.toFixed(2)}) is below the minimum suggested price ($${priceRange.min.toFixed(2)}). Drivers may not accept this offer.`,
+        `Your proposed price (${formatCurrency(price)}) is below the minimum suggested price (${formatCurrency(priceRange.min)}). Drivers may not accept this offer.`,
         [
           { text: "Change Price", style: "cancel" },
           { 
@@ -110,7 +130,7 @@ const RideBooking = () => {
     if (price > priceRange.max) {
       Alert.alert(
         "Price Too High", 
-        `Your proposed price ($${price.toFixed(2)}) is above the maximum suggested price ($${priceRange.max.toFixed(2)}). You might be overpaying.`,
+        `Your proposed price (${formatCurrency(price)}) is above the maximum suggested price (${formatCurrency(priceRange.max)}). You might be overpaying.`,
         [
           { text: "Change Price", style: "cancel" },
           { 
@@ -233,7 +253,7 @@ const RideBooking = () => {
               <TextInput
                 value={proposedPrice}
                 onChangeText={setProposedPrice}
-                placeholder={`$${priceRange.suggested.toFixed(2)}`}
+                placeholder={formatCurrency(priceRange.suggested)}
                 keyboardType="decimal-pad"
                 returnKeyType="done"
                 blurOnSubmit={true}
@@ -271,13 +291,13 @@ const RideBooking = () => {
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 5 }}>
             <CustomText fontSize={10} style={{ color: '#6B7280' }}>
-              Min: ${priceRange.min.toFixed(2)}
+              Min: {formatCurrency(priceRange.min)}
             </CustomText>
             <CustomText fontSize={10} style={{ color: '#6B7280' }}>
-              Suggested: ${priceRange.suggested.toFixed(2)}
+              Suggested: {formatCurrency(priceRange.suggested)}
             </CustomText>
             <CustomText fontSize={10} style={{ color: '#6B7280' }}>
-              Max: ${priceRange.max.toFixed(2)}
+              Max: {formatCurrency(priceRange.max)}
             </CustomText>
           </View>
 
@@ -324,11 +344,11 @@ const RideOption = memo(({ ride, selected, onSelect }: any) => (
 
       <View style={rideStyles?.priceContainer}>
         <CustomText fontFamily="Medium" fontSize={14}>
-          ${ride?.price?.toFixed(2)}
+          {formatCurrency(ride?.price ?? 0)}
         </CustomText>
         {selected === ride.type && (
           <Text style={rideStyles?.discountedPrice}>
-            ${Number(ride?.price + 10).toFixed(2)}
+            {formatCurrency((ride?.price ?? 0) + 10)}
           </Text>
         )}
       </View>

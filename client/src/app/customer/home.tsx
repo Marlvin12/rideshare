@@ -4,14 +4,15 @@ import {
   TouchableOpacity,
   Image,
   StyleSheet,
-  SafeAreaView,
-  FlatList,
+  RefreshControl,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import React, { useEffect, useState, useCallback } from "react";
 import { StatusBar } from "expo-status-bar";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { RFValue } from "react-native-responsive-fontsize";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CustomText from "@/components/shared/CustomText";
 import { Colors, screenWidth } from "@/utils/Constants";
 import { useUserStore } from "@/store/userStore";
@@ -20,6 +21,12 @@ import RideHistoryModal from "@/components/shared/RideHistoryModal";
 import { getRestaurants, getCuisines } from "@/service/eatsService";
 import { useEatsStore } from "@/store/eatsStore";
 import { useCartStore } from "@/store/cartStore";
+import LoadingState from "@/components/shared/LoadingState";
+import ErrorState from "@/components/shared/ErrorState";
+import EmptyState from "@/components/shared/EmptyState";
+import { SkeletonCard } from "@/components/shared/SkeletonLoader";
+import { formatCurrency } from "@/utils/currency";
+import { ErrorMessages } from "@/utils/errorMessages";
 
 const services = [
   { id: 1, name: "Ride", icon: require("@/assets/icons/cab.png"), promo: false },
@@ -28,10 +35,6 @@ const services = [
   { id: 4, name: "Reserve", icon: require("@/assets/icons/auto.png"), promo: false },
 ];
 
-const recentLocations = [
-  { id: 1, name: "Rd", city: "Austin, TX", saved: false },
-  { id: 2, name: "St", city: "Austin, TX", saved: false },
-];
 
 const cuisineIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
   "Fast Food": "fast-food",
@@ -46,9 +49,13 @@ const cuisineIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 const CustomerHome = () => {
-  const { location } = useUserStore();
+  const { location, recentLocations } = useUserStore();
   const [activeTab, setActiveTab] = useState<"rides" | "eats">("rides");
   const [showRideHistory, setShowRideHistory] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [eatsLoading, setEatsLoading] = useState(false);
+  const [eatsError, setEatsError] = useState<string | null>(null);
+  const insets = useSafeAreaInsets();
   
   const { restaurants, cuisines, setRestaurants, setCuisines } = useEatsStore();
   const cartCount = useCartStore((state) => state.getItemCount());
@@ -58,24 +65,44 @@ const CustomerHome = () => {
   }, []);
 
   useEffect(() => {
-    if (activeTab === "eats") {
+    if (activeTab === "eats" && restaurants.length === 0) {
       fetchEatsData();
     }
   }, [activeTab]);
 
   const fetchEatsData = useCallback(async () => {
-    const [restaurantsResult, cuisinesResult] = await Promise.all([
-      getRestaurants({ featured: true }),
-      getCuisines(),
-    ]);
-    
-    if (restaurantsResult.success) {
-      setRestaurants(restaurantsResult.restaurants);
-    }
-    if (cuisinesResult.success) {
-      setCuisines(cuisinesResult.cuisines);
+    setEatsLoading(true);
+    setEatsError(null);
+    try {
+      const [restaurantsResult, cuisinesResult] = await Promise.all([
+        getRestaurants({ featured: true }),
+        getCuisines(),
+      ]);
+      
+      if (restaurantsResult.success) {
+        setRestaurants(restaurantsResult.restaurants);
+      } else {
+        setEatsError(ErrorMessages.food.fetchRestaurantsFailed);
+      }
+      if (cuisinesResult.success) {
+        setCuisines(cuisinesResult.cuisines);
+      }
+    } catch {
+      setEatsError(ErrorMessages.food.fetchRestaurantsFailed);
+    } finally {
+      setEatsLoading(false);
     }
   }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    if (activeTab === "eats") {
+      await fetchEatsData();
+    } else {
+      await getMyRides();
+    }
+    setRefreshing(false);
+  }, [activeTab, fetchEatsData]);
 
   const handleServicePress = () => {
     router.navigate("/customer/selectlocations");
@@ -142,10 +169,23 @@ const CustomerHome = () => {
           style={styles.content}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[Colors.primary]}
+              tintColor={Colors.primary}
+            />
+          }
         >
           {activeTab === "rides" ? (
             <>
-              <TouchableOpacity style={styles.searchBar} onPress={handleServicePress}>
+              <TouchableOpacity
+                style={styles.searchBar}
+                onPress={handleServicePress}
+                accessibilityRole="search"
+                accessibilityLabel="Search for a destination"
+              >
                 <Ionicons name="search" size={RFValue(18)} color={Colors.text} />
                 <CustomText fontFamily="Regular" fontSize={14} style={styles.searchText}>
                   Where to?
@@ -235,9 +275,23 @@ const CustomerHome = () => {
                 </View>
               </TouchableOpacity>
             </>
+          ) : eatsLoading ? (
+            <View style={styles.stateContainer}>
+              <SkeletonCard count={4} />
+            </View>
+          ) : eatsError ? (
+            <ErrorState
+              message={eatsError}
+              onRetry={fetchEatsData}
+            />
           ) : (
             <>
-              <TouchableOpacity style={styles.searchBar} onPress={handleEatsSearchPress}>
+              <TouchableOpacity
+                style={styles.searchBar}
+                onPress={handleEatsSearchPress}
+                accessibilityRole="search"
+                accessibilityLabel="Search for food"
+              >
                 <Ionicons name="search" size={RFValue(18)} color={Colors.text} />
                 <CustomText fontFamily="Regular" fontSize={14} style={styles.searchText}>
                   What are you craving?
@@ -258,6 +312,8 @@ const CustomerHome = () => {
                       key={cuisine}
                       style={styles.cuisineCard}
                       onPress={() => handleCuisinePress(cuisine)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${cuisine} cuisine`}
                     >
                       <View style={styles.cuisineIconContainer}>
                         <Ionicons
@@ -274,68 +330,89 @@ const CustomerHome = () => {
                 </ScrollView>
               </View>
 
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <CustomText fontFamily="SemiBold" fontSize={16}>
-                    Featured Restaurants
-                  </CustomText>
-                  <TouchableOpacity onPress={handleEatsSearchPress}>
-                    <CustomText fontFamily="Regular" fontSize={13} style={styles.seeAll}>
-                      See All
+              {restaurants.length === 0 ? (
+                <EmptyState
+                  icon="restaurant-outline"
+                  title="No restaurants nearby"
+                  message="We couldn't find any restaurants in your area. Try a different location."
+                  actionLabel="Browse all"
+                  onAction={handleEatsSearchPress}
+                />
+              ) : (
+                <View style={styles.section}>
+                  <View style={styles.sectionHeader}>
+                    <CustomText fontFamily="SemiBold" fontSize={16}>
+                      Featured Restaurants
                     </CustomText>
-                  </TouchableOpacity>
-                </View>
-
-                {restaurants.slice(0, 4).map((restaurant) => (
-                  <TouchableOpacity
-                    key={restaurant._id}
-                    style={styles.restaurantCard}
-                    onPress={() => handleRestaurantPress(restaurant._id)}
-                  >
-                    <View style={styles.restaurantImageContainer}>
-                      <Ionicons name="restaurant" size={30} color={Colors.textLight} />
-                    </View>
-                    <View style={styles.restaurantInfo}>
-                      <CustomText fontFamily="SemiBold" fontSize={14} numberOfLines={1}>
-                        {restaurant.name}
+                    <TouchableOpacity
+                      onPress={handleEatsSearchPress}
+                      accessibilityRole="button"
+                      accessibilityLabel="See all restaurants"
+                    >
+                      <CustomText fontFamily="Regular" fontSize={13} style={styles.seeAll}>
+                        See All
                       </CustomText>
-                      <View style={styles.restaurantMeta}>
-                        <Ionicons name="star" size={RFValue(12)} color="#FFC107" />
-                        <CustomText fontFamily="Regular" fontSize={12} style={styles.restaurantRating}>
-                          {restaurant.rating.toFixed(1)}
-                        </CustomText>
-                        <View style={styles.metaDot} />
-                        <CustomText fontFamily="Regular" fontSize={12} style={styles.restaurantCuisine}>
-                          {restaurant.cuisine.slice(0, 2).join(', ')}
-                        </CustomText>
-                      </View>
-                      <View style={styles.restaurantDelivery}>
-                        <Ionicons name="time-outline" size={RFValue(12)} color={Colors.textLight} />
-                        <CustomText fontFamily="Regular" fontSize={11} style={styles.deliveryText}>
-                          {restaurant.preparationTime || 25}-{(restaurant.preparationTime || 25) + 15} min
-                        </CustomText>
-                        <View style={styles.metaDot} />
-                        <CustomText fontFamily="Regular" fontSize={11} style={styles.deliveryText}>
-                          ${restaurant.deliveryFee.toFixed(2)} delivery
-                        </CustomText>
-                      </View>
-                    </View>
-                    <Ionicons name="chevron-forward" size={RFValue(16)} color={Colors.textLight} />
-                  </TouchableOpacity>
-                ))}
-              </View>
+                    </TouchableOpacity>
+                  </View>
 
-              <TouchableOpacity style={[styles.promoBanner, { backgroundColor: Colors.primary }]} onPress={handleEatsSearchPress}>
+                  {restaurants.slice(0, 4).map((restaurant) => (
+                    <TouchableOpacity
+                      key={restaurant._id}
+                      style={styles.restaurantCard}
+                      onPress={() => handleRestaurantPress(restaurant._id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${restaurant.name}, rated ${restaurant.rating.toFixed(1)}`}
+                    >
+                      <View style={styles.restaurantImageContainer}>
+                        <Ionicons name="restaurant" size={30} color={Colors.textLight} />
+                      </View>
+                      <View style={styles.restaurantInfo}>
+                        <CustomText fontFamily="SemiBold" fontSize={14} numberOfLines={1}>
+                          {restaurant.name}
+                        </CustomText>
+                        <View style={styles.restaurantMeta}>
+                          <Ionicons name="star" size={RFValue(12)} color="#FFC107" />
+                          <CustomText fontFamily="Regular" fontSize={12} style={styles.restaurantRating}>
+                            {restaurant.rating.toFixed(1)}
+                          </CustomText>
+                          <View style={styles.metaDot} />
+                          <CustomText fontFamily="Regular" fontSize={12} style={styles.restaurantCuisine}>
+                            {restaurant.cuisine.slice(0, 2).join(', ')}
+                          </CustomText>
+                        </View>
+                        <View style={styles.restaurantDelivery}>
+                          <Ionicons name="time-outline" size={RFValue(12)} color={Colors.textLight} />
+                          <CustomText fontFamily="Regular" fontSize={11} style={styles.deliveryText}>
+                            {restaurant.preparationTime || 25}-{(restaurant.preparationTime || 25) + 15} min
+                          </CustomText>
+                          <View style={styles.metaDot} />
+                          <CustomText fontFamily="Regular" fontSize={11} style={styles.deliveryText}>
+                            {formatCurrency(restaurant.deliveryFee)} delivery
+                          </CustomText>
+                        </View>
+                      </View>
+                      <Ionicons name="chevron-forward" size={RFValue(16)} color={Colors.textLight} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[styles.promoBanner, { backgroundColor: Colors.primary }]}
+                onPress={handleEatsSearchPress}
+                accessibilityRole="button"
+                accessibilityLabel="Free delivery on your first order. Order now."
+              >
                 <View style={styles.promoContent}>
                   <CustomText fontFamily="Bold" fontSize={18} style={styles.promoTitle}>
                     Free delivery on{"\n"}your first order!
                   </CustomText>
-                  <TouchableOpacity style={styles.redeemButton} onPress={handleEatsSearchPress}>
+                  <View style={styles.redeemButton}>
                     <CustomText fontFamily="SemiBold" fontSize={14} style={styles.redeemText}>
                       Order now
                     </CustomText>
                     <Ionicons name="arrow-forward" size={RFValue(14)} color={Colors.white} />
-                  </TouchableOpacity>
+                  </View>
                 </View>
                 <View style={styles.promoImageContainer}>
                   <Ionicons name="fast-food" size={80} color="rgba(255,255,255,0.3)" />
@@ -368,29 +445,29 @@ const CustomerHome = () => {
           </TouchableOpacity>
         )}
 
-        <View style={styles.bottomNav}>
-          <TouchableOpacity style={styles.navItem}>
+        <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+          <TouchableOpacity style={styles.navItem} accessibilityRole="tab" accessibilityLabel="Home" accessibilityState={{ selected: true }}>
             <Ionicons name="home" size={RFValue(20)} color={Colors.text} />
             <CustomText fontFamily="SemiBold" fontSize={10} style={styles.navTextActive}>
               Home
             </CustomText>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.navItem} onPress={() => router.push("/customer/services")}>
+          <TouchableOpacity style={styles.navItem} onPress={() => router.push("/customer/services")} accessibilityRole="tab" accessibilityLabel="Services">
             <Ionicons name="grid-outline" size={RFValue(20)} color={Colors.textLight} />
             <CustomText fontFamily="Regular" fontSize={10} style={styles.navText}>
               Services
             </CustomText>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.navItem} onPress={() => setShowRideHistory(true)}>
+          <TouchableOpacity style={styles.navItem} onPress={() => setShowRideHistory(true)} accessibilityRole="tab" accessibilityLabel="Activity history">
             <Ionicons name="receipt-outline" size={RFValue(20)} color={Colors.textLight} />
             <CustomText fontFamily="Regular" fontSize={10} style={styles.navText}>
               Activity
             </CustomText>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.navItem} onPress={() => router.push("/customer/account")}>
+          <TouchableOpacity style={styles.navItem} onPress={() => router.push("/customer/account")} accessibilityRole="tab" accessibilityLabel="Account settings">
             <Ionicons name="person-outline" size={RFValue(20)} color={Colors.textLight} />
             <CustomText fontFamily="Regular" fontSize={10} style={styles.navText}>
               Account
@@ -628,7 +705,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#F0FDF4",
+    backgroundColor: "#FDF2F2",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 8,
@@ -714,6 +791,10 @@ const styles = StyleSheet.create({
   },
   cartBadgeText: {
     color: Colors.white,
+  },
+  stateContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
 });
 

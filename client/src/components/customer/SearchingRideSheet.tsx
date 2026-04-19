@@ -8,6 +8,7 @@ import CustomText from "../shared/CustomText";
 import { vehicleIcons } from "@/utils/mapUtils";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { Alert } from "react-native";
 
 type VehicleType = "bike" | "cabEconomy" | "cabPremium";
 
@@ -104,7 +105,12 @@ const SearchingRideSheet: FC<{ item: RideItem }> = ({ item }) => {
           style={rideStyles.cancelButton}
           activeOpacity={0.7}
           onPress={() => {
-            emit("cancelRide", item?._id);
+            const rideId = item?._id;
+            if (!rideId) {
+              Alert.alert("Ride Error", "Unable to cancel this ride right now.");
+              return;
+            }
+            emit("cancelRide", rideId);
           }}
         >
           <CustomText style={rideStyles?.cancelButtonText} fontFamily="SemiBold">Cancel</CustomText>

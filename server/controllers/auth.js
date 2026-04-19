@@ -1,5 +1,7 @@
 import User from "../models/User.js";
+import logger from "../config/logger.js";
 import { StatusCodes } from "http-status-codes";
+import NotFoundError from "../errors/not-found.js";
 import { BadRequestError, UnauthenticatedError } from "../errors/index.js";
 import jwt from "jsonwebtoken";
 import admin from "firebase-admin";
@@ -11,8 +13,8 @@ export const auth = async (req, res) => {
     throw new BadRequestError("Phone number is required");
   }
 
-  if (!role || !["customer", "rider"].includes(role)) {
-    throw new BadRequestError("Valid role is required (customer or rider)");
+  if (!role || !["customer", "rider", "merchant"].includes(role)) {
+    throw new BadRequestError("Valid role is required (customer, rider, or merchant)");
   }
 
   try {
@@ -51,20 +53,20 @@ export const auth = async (req, res) => {
       refresh_token: refreshToken,
     });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, 'Auth error');
     throw error;
   }
 };
 
 export const firebaseAuth = async (req, res) => {
-  const { firebaseToken, role, phone, uid } = req.body;
+  const { firebaseToken, role, phone, uid, email: bodyEmail } = req.body;
 
   if (!firebaseToken) {
     throw new BadRequestError("Firebase token is required");
   }
 
-  if (!role || !["customer", "rider"].includes(role)) {
-    throw new BadRequestError("Valid role is required (customer or rider)");
+  if (!role || !["customer", "rider", "merchant"].includes(role)) {
+    throw new BadRequestError("Valid role is required (customer, rider, or merchant)");
   }
 
   try {
@@ -78,7 +80,7 @@ export const firebaseAuth = async (req, res) => {
 
     if (user) {
       if (user.role !== role) {
-        throw new BadRequestError("Phone number and role do not match");
+        throw new BadRequestError("Account role does not match the requested role");
       }
 
       const accessToken = user.createAccessToken();
@@ -92,8 +94,12 @@ export const firebaseAuth = async (req, res) => {
       });
     }
 
+    const resolvedEmail = bodyEmail || decodedToken.email || null;
+    const resolvedPhone = phone || decodedToken.phone_number || null;
+
     user = new User({
-      phone: phone || decodedToken.phone_number,
+      phone: resolvedPhone,
+      email: resolvedEmail,
       role,
       firebaseUid: uid,
     });
@@ -110,12 +116,49 @@ export const firebaseAuth = async (req, res) => {
       refresh_token: refreshToken,
     });
   } catch (error) {
-    console.error("Firebase auth error:", error);
+    logger.error({ err: error }, 'Firebase auth error');
     if (error.code === 'auth/id-token-expired') {
       throw new UnauthenticatedError("Firebase token expired");
     }
     throw error;
   }
+};
+
+export const updateProfile = async (req, res) => {
+  const user = await User.findById(req.user.id);
+  if (!user) {
+    throw new NotFoundError("User not found");
+  }
+
+  const {
+    firstName,
+    lastName,
+    whatsapp,
+    gender,
+    residencyType,
+    marketingOptOut,
+  } = req.body;
+
+  user.name = `${firstName} ${lastName}`.trim();
+  if (typeof whatsapp === "string") {
+    user.whatsapp = whatsapp || user.whatsapp;
+  }
+  if (gender) {
+    user.gender = gender;
+  }
+  if (residencyType) {
+    user.residencyType = residencyType;
+  }
+  if (typeof marketingOptOut === "boolean") {
+    user.marketingOptOut = marketingOptOut;
+  }
+
+  await user.save();
+
+  res.status(StatusCodes.OK).json({
+    message: "Profile updated",
+    user,
+  });
 };
 
 export const refreshToken = async (req, res) => {
@@ -140,7 +183,7 @@ export const refreshToken = async (req, res) => {
       refresh_token: newRefreshToken,
     });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, 'Token refresh error');
     throw new UnauthenticatedError("Invalid refresh token");
   }
 };

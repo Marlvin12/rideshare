@@ -10,12 +10,40 @@ const userSchema = new Schema(
     },
     role: {
       type: String,
-      enum: ["customer", "rider"],
+      enum: ["customer", "rider", "merchant"],
       required: true,
+    },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      sparse: true,
     },
     phone: {
       type: String,
       sparse: true,
+    },
+    whatsapp: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    gender: {
+      type: String,
+      enum: ['male', 'female'],
+    },
+    residencyType: {
+      type: String,
+      enum: ['resident', 'visitor'],
+    },
+    marketingOptOut: {
+      type: Boolean,
+      default: false,
+    },
+    restaurantId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Restaurant',
+      default: null,
     },
     firebaseUid: {
       type: String,
@@ -123,6 +151,29 @@ const userSchema = new Schema(
     profilePhoto: {
       type: String,
     },
+    payoutMethod: {
+      type: String,
+      enum: ["ecocash", "onemoney", "bank"],
+      default: null,
+    },
+    payoutMobile: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    payoutBankAccount: {
+      bankName: { type: String },
+      accountNumber: { type: String },
+      accountName: { type: String },
+    },
+    preferences: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
+    deletionRequestedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -149,6 +200,10 @@ userSchema.methods.createRefreshToken = function () {
     }
   );
 };
+
+userSchema.index({ role: 1 });
+userSchema.index({ 'kyc.status': 1 });
+userSchema.index({ createdAt: -1 });
 
 const User = mongoose.model("User", userSchema);
 export default User;

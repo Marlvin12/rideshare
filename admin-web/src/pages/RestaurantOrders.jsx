@@ -1,48 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Box,
-  Card,
-  CardContent,
-  Grid,
-  Typography,
-  Button,
-  Chip,
-  CircularProgress,
-  Alert,
-  Tabs,
-  Tab,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  List,
-  ListItem,
-  ListItemText,
-  Divider,
-} from '@mui/material';
+import { useState, useEffect, useCallback } from 'react';
 import {
   CheckCircle,
-  Cancel,
-  AccessTime,
-  LocalShipping,
-  Restaurant,
-} from '@mui/icons-material';
+  XCircle,
+  Clock,
+  Truck,
+  UtensilsCrossed,
+  RefreshCw,
+} from 'lucide-react';
 import api from '../services/api';
 import { io } from 'socket.io-client';
-
-const statusColors = {
-  pending: 'warning',
-  restaurant_accepted: 'info',
-  preparing: 'info',
-  ready_for_pickup: 'success',
-  bidding_open: 'secondary',
-  courier_assigned: 'primary',
-  picked_up: 'primary',
-  in_transit: 'primary',
-  delivered: 'success',
-  cancelled: 'error',
-};
+import RestaurantSelector, { getStoredRestaurantId } from '../components/RestaurantSelector';
 
 const statusLabels = {
   pending: 'New Order',
@@ -57,27 +24,37 @@ const statusLabels = {
   cancelled: 'Cancelled',
 };
 
-const RestaurantOrders = () => {
+const statusPillClass = {
+  pending: 'bg-amber-100 text-amber-800',
+  restaurant_accepted: 'bg-blue-100 text-blue-800',
+  preparing: 'bg-blue-100 text-blue-800',
+  ready_for_pickup: 'bg-emerald-100 text-emerald-800',
+  bidding_open: 'bg-slate-100 text-slate-700',
+  courier_assigned: 'bg-indigo-100 text-indigo-800',
+  picked_up: 'bg-indigo-100 text-indigo-800',
+  in_transit: 'bg-indigo-100 text-indigo-800',
+  delivered: 'bg-emerald-100 text-emerald-800',
+  cancelled: 'bg-rose-100 text-rose-800',
+};
+
+export default function RestaurantOrders() {
+  const [restaurantId, setRestaurantId] = useState(getStoredRestaurantId());
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('active');
   const [prepTimeDialog, setPrepTimeDialog] = useState({ open: false, orderId: null });
-  const [prepTime, setPrepTime] = useState('25');
+  const [prepTime, setPrepTime] = useState(25);
   const [actionLoading, setActionLoading] = useState(null);
 
-  const restaurantId = localStorage.getItem('restaurantId') || 'rest_001';
-
   const fetchOrders = useCallback(async () => {
+    if (!restaurantId) return;
     try {
       setLoading(true);
       const res = await api.get(`/food-orders/restaurant/${restaurantId}`);
-      if (res.data.success) {
-        setOrders(res.data.orders || []);
-      }
+      if (res.data.success) setOrders(res.data.orders || []);
       setError(null);
     } catch (err) {
-      console.error('Failed to fetch orders:', err);
       setError('Failed to load orders');
     } finally {
       setLoading(false);
@@ -85,53 +62,43 @@ const RestaurantOrders = () => {
   }, [restaurantId]);
 
   useEffect(() => {
+    if (!restaurantId) {
+      setOrders([]);
+      setLoading(false);
+      return;
+    }
     fetchOrders();
-
     const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:3000');
-    
     socket.emit('joinRoom', `restaurant_${restaurantId}`);
-    
-    socket.on('order:new', (data) => {
-      fetchOrders();
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [fetchOrders, restaurantId]);
-
-  const handleAcceptOrder = async (orderId) => {
-    setPrepTimeDialog({ open: true, orderId });
-  };
+    socket.on('order:new', fetchOrders);
+    return () => { socket.disconnect(); };
+  }, [restaurantId, fetchOrders]);
 
   const confirmAcceptOrder = async () => {
     const { orderId } = prepTimeDialog;
+    if (!orderId) return;
     setActionLoading(orderId);
-    
     try {
       await api.patch(`/food-orders/${orderId}/restaurant-accept`, {
-        preparationTime: parseInt(prepTime, 10),
+        preparationTime: Number(prepTime) || 25,
       });
       fetchOrders();
       setPrepTimeDialog({ open: false, orderId: null });
     } catch (err) {
-      console.error('Failed to accept order:', err);
+      console.error(err);
     } finally {
       setActionLoading(null);
     }
   };
 
   const handleRejectOrder = async (orderId) => {
-    if (!window.confirm('Are you sure you want to reject this order?')) return;
-    
+    if (!window.confirm('Reject this order?')) return;
     setActionLoading(orderId);
     try {
-      await api.patch(`/food-orders/${orderId}/restaurant-reject`, {
-        reason: 'Restaurant unavailable',
-      });
+      await api.patch(`/food-orders/${orderId}/restaurant-reject`, { reason: 'Restaurant unavailable' });
       fetchOrders();
     } catch (err) {
-      console.error('Failed to reject order:', err);
+      console.error(err);
     } finally {
       setActionLoading(null);
     }
@@ -143,198 +110,219 @@ const RestaurantOrders = () => {
       await api.patch(`/food-orders/${orderId}/ready`);
       fetchOrders();
     } catch (err) {
-      console.error('Failed to mark ready:', err);
+      console.error(err);
     } finally {
       setActionLoading(null);
     }
   };
 
-  const activeStatuses = ['pending', 'restaurant_accepted', 'preparing', 'ready_for_pickup', 'bidding_open', 'courier_assigned'];
+  const activeStatuses = [
+    'pending',
+    'restaurant_accepted',
+    'preparing',
+    'ready_for_pickup',
+    'bidding_open',
+    'courier_assigned',
+  ];
   const completedStatuses = ['picked_up', 'in_transit', 'delivered', 'cancelled'];
-
-  const filteredOrders = orders.filter(order => 
-    activeTab === 'active' 
-      ? activeStatuses.includes(order.status)
-      : completedStatuses.includes(order.status)
+  const filteredOrders = orders.filter((o) =>
+    activeTab === 'active' ? activeStatuses.includes(o.status) : completedStatuses.includes(o.status)
   );
+  const activeCount = orders.filter((o) => activeStatuses.includes(o.status)).length;
+  const completedCount = orders.filter((o) => completedStatuses.includes(o.status)).length;
 
-  if (loading) {
+  if (!restaurantId) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
-      </Box>
+      <div className="space-y-6">
+        <h1 className="text-2xl font-semibold text-slate-900">Restaurant Orders</h1>
+        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
+          <p className="text-slate-600">Select a restaurant to view orders</p>
+          <div className="mt-6 flex justify-center">
+            <RestaurantSelector value="" onChange={setRestaurantId} />
+          </div>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
-        <Typography variant="h4" fontWeight="bold">
-          Orders
-        </Typography>
-        <Button variant="outlined" onClick={fetchOrders}>
-          Refresh
-        </Button>
-      </Box>
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <h1 className="text-2xl font-semibold text-slate-900">Restaurant Orders</h1>
+        <div className="flex items-center gap-3">
+          <RestaurantSelector value={restaurantId} onChange={setRestaurantId} />
+          <button
+            type="button"
+            onClick={fetchOrders}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </div>
+      </div>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <div className="rounded-xl bg-rose-50 border border-rose-200 px-4 py-3 text-sm text-rose-700">
           {error}
-        </Alert>
+        </div>
       )}
 
-      <Tabs
-        value={activeTab}
-        onChange={(e, v) => setActiveTab(v)}
-        sx={{ mb: 3 }}
-      >
-        <Tab value="active" label={`Active (${orders.filter(o => activeStatuses.includes(o.status)).length})`} />
-        <Tab value="completed" label={`History (${orders.filter(o => completedStatuses.includes(o.status)).length})`} />
-      </Tabs>
+      <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit">
+        <button
+          type="button"
+          onClick={() => setActiveTab('active')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium ${
+            activeTab === 'active' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Active ({activeCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('completed')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium ${
+            activeTab === 'completed' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          History ({completedCount})
+        </button>
+      </div>
 
-      <Grid container spacing={3}>
-        {filteredOrders.length === 0 ? (
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Box textAlign="center" py={4}>
-                  <Restaurant sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                  <Typography color="text.secondary">
-                    {activeTab === 'active' ? 'No active orders' : 'No order history'}
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        ) : (
-          filteredOrders.map((order) => (
-            <Grid item xs={12} md={6} lg={4} key={order._id}>
-              <Card sx={{ height: '100%' }}>
-                <CardContent>
-                  <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
-                    <Box>
-                      <Typography variant="h6" fontWeight="bold">
-                        #{order.orderNumber}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {new Date(order.createdAt).toLocaleTimeString()}
-                      </Typography>
-                    </Box>
-                    <Chip
-                      label={statusLabels[order.status]}
-                      color={statusColors[order.status]}
-                      size="small"
-                    />
-                  </Box>
+      {loading ? (
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-10 w-10 border-4 border-slate-200 border-t-blue-600" />
+        </div>
+      ) : filteredOrders.length === 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+          <UtensilsCrossed className="mx-auto text-slate-300" size={48} />
+          <p className="mt-4 text-slate-600">
+            {activeTab === 'active' ? 'No active orders' : 'No order history'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {filteredOrders.map((order) => (
+            <div
+              key={order._id}
+              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:border-slate-300"
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <p className="text-lg font-semibold text-slate-900">#{order.orderNumber}</p>
+                  <p className="text-sm text-slate-500">
+                    {new Date(order.createdAt).toLocaleTimeString()}
+                  </p>
+                </div>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                    statusPillClass[order.status] || 'bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  {statusLabels[order.status]}
+                </span>
+              </div>
 
-                  <Divider sx={{ my: 2 }} />
+              <div className="border-t border-slate-100 pt-4 space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Items</p>
+                {(order.items || []).map((item, idx) => (
+                  <div key={idx} className="flex justify-between text-sm">
+                    <span>{item.quantity}x {item.name}</span>
+                    <span className="text-slate-600">${Number(item.subtotal || 0).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
 
-                  <Typography variant="subtitle2" fontWeight="bold" mb={1}>
-                    Items
-                  </Typography>
-                  <List dense disablePadding>
-                    {order.items?.map((item, idx) => (
-                      <ListItem key={idx} disablePadding sx={{ py: 0.5 }}>
-                        <ListItemText
-                          primary={`${item.quantity}x ${item.name}`}
-                          secondary={`$${item.subtotal?.toFixed(2)}`}
-                          primaryTypographyProps={{ variant: 'body2' }}
-                          secondaryTypographyProps={{ variant: 'body2' }}
-                        />
-                      </ListItem>
-                    ))}
-                  </List>
+              <div className="border-t border-slate-100 mt-4 pt-4 flex justify-between font-semibold">
+                <span>Total</span>
+                <span className="text-blue-600">${Number(order.pricing?.total || 0).toFixed(2)}</span>
+              </div>
 
-                  <Divider sx={{ my: 2 }} />
+              {order.deliveryAddress?.address && (
+                <p className="text-sm text-slate-500 mt-2 truncate" title={order.deliveryAddress.address}>
+                  {order.deliveryAddress.address}
+                </p>
+              )}
 
-                  <Box display="flex" justifyContent="space-between" mb={2}>
-                    <Typography fontWeight="bold">Total</Typography>
-                    <Typography fontWeight="bold" color="primary">
-                      ${order.pricing?.total?.toFixed(2)}
-                    </Typography>
-                  </Box>
+              {order.status === 'pending' && (
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setPrepTimeDialog({ open: true, orderId: order._id }); setPrepTime(25); }}
+                    disabled={actionLoading === order._id}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    <CheckCircle size={18} />
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRejectOrder(order._id)}
+                    disabled={actionLoading === order._id}
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 border border-rose-200 text-rose-700 text-sm font-medium rounded-xl hover:bg-rose-50 disabled:opacity-50"
+                  >
+                    <XCircle size={18} />
+                    Reject
+                  </button>
+                </div>
+              )}
 
-                  <Typography variant="body2" color="text.secondary" mb={2}>
-                    Delivery: {order.deliveryAddress?.address}
-                  </Typography>
+              {(order.status === 'restaurant_accepted' || order.status === 'preparing') && (
+                <button
+                  type="button"
+                  onClick={() => handleMarkReady(order._id)}
+                  disabled={actionLoading === order._id}
+                  className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <Truck size={18} />
+                  Mark Ready for Pickup
+                </button>
+              )}
 
-                  {order.status === 'pending' && (
-                    <Box display="flex" gap={1}>
-                      <Button
-                        variant="contained"
-                        color="success"
-                        fullWidth
-                        startIcon={<CheckCircle />}
-                        onClick={() => handleAcceptOrder(order._id)}
-                        disabled={actionLoading === order._id}
-                      >
-                        Accept
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        startIcon={<Cancel />}
-                        onClick={() => handleRejectOrder(order._id)}
-                        disabled={actionLoading === order._id}
-                      >
-                        Reject
-                      </Button>
-                    </Box>
-                  )}
+              {order.status === 'ready_for_pickup' && (
+                <div className="mt-4 flex items-center gap-2 px-4 py-3 bg-blue-50 rounded-xl text-sm text-blue-800">
+                  <Clock size={18} />
+                  Waiting for courier pickup
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
-                  {(order.status === 'restaurant_accepted' || order.status === 'preparing') && (
-                    <Button
-                      variant="contained"
-                      color="primary"
-                      fullWidth
-                      startIcon={<LocalShipping />}
-                      onClick={() => handleMarkReady(order._id)}
-                      disabled={actionLoading === order._id}
-                    >
-                      Mark Ready for Pickup
-                    </Button>
-                  )}
-
-                  {order.status === 'ready_for_pickup' && (
-                    <Alert severity="info" icon={<AccessTime />}>
-                      Waiting for courier pickup
-                    </Alert>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
-          ))
-        )}
-      </Grid>
-
-      <Dialog open={prepTimeDialog.open} onClose={() => setPrepTimeDialog({ open: false, orderId: null })}>
-        <DialogTitle>Set Preparation Time</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" mb={2}>
-            How long will it take to prepare this order?
-          </Typography>
-          <TextField
-            autoFocus
-            label="Minutes"
-            type="number"
-            fullWidth
-            value={prepTime}
-            onChange={(e) => setPrepTime(e.target.value)}
-            InputProps={{ inputProps: { min: 5, max: 120 } }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPrepTimeDialog({ open: false, orderId: null })}>
-            Cancel
-          </Button>
-          <Button onClick={confirmAcceptOrder} variant="contained" color="success">
-            Accept Order
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+      {prepTimeDialog.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">Set Preparation Time</h3>
+            <p className="text-sm text-slate-500 mb-4">How long will it take to prepare this order?</p>
+            <input
+              type="number"
+              min={5}
+              max={120}
+              value={prepTime}
+              onChange={(e) => setPrepTime(Number(e.target.value) || 25)}
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-slate-900"
+            />
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setPrepTimeDialog({ open: false, orderId: null })}
+                className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-slate-700 font-medium hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmAcceptOrder}
+                className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700"
+              >
+                Accept Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
-};
-
-export default RestaurantOrders;
-
+}

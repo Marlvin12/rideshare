@@ -2,18 +2,20 @@ import {
   View,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   Image,
 } from "react-native";
-import React from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
+import React, { useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { RFValue } from "react-native-responsive-fontsize";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CustomText from "@/components/shared/CustomText";
 import { screenWidth } from "@/utils/Constants";
 import { useThemeStore } from "@/store/themeStore";
+import RideHistoryModal from "@/components/shared/RideHistoryModal";
 
 const rideServices = [
   {
@@ -29,6 +31,7 @@ const rideServices = [
     icon: require("@/assets/icons/cab_premium.png"),
     promo: "Promo",
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "reserve",
@@ -42,12 +45,14 @@ const rideServices = [
     name: "Teens",
     iconName: "people" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "seniors",
     name: "Seniors",
     iconName: "accessibility" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "bike",
@@ -62,86 +67,108 @@ const deliveryServices = [
     id: "food",
     name: "Food",
     iconName: "fast-food" as const,
-    route: "/customer/eats/restaurants",
+    route: "/customer/delivery",
   },
   {
     id: "grocery",
     name: "Grocery",
     iconName: "cart" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "alcohol",
     name: "Alcohol",
     iconName: "wine" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "electronics",
     name: "Electronics",
     iconName: "hardware-chip" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "convenience",
     name: "Convenience",
     iconName: "storefront" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "retail",
     name: "Retail",
     iconName: "pricetag" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "flowers",
     name: "Flowers",
     iconName: "flower" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "health",
     name: "Health",
     iconName: "medkit" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "package",
     name: "Package",
     iconName: "cube" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "baby",
     name: "Baby",
     iconName: "happy" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "pet",
     name: "Pet Supplies",
     iconName: "paw" as const,
     disabled: true,
+    comingSoon: true,
   },
   {
     id: "gourmet",
     name: "Gourmet",
     iconName: "restaurant" as const,
     disabled: true,
+    comingSoon: true,
   },
 ];
 
 const cardWidth = (screenWidth - 60) / 4;
+
+interface ServiceItem {
+  id: string;
+  name: string;
+  icon?: number;
+  iconName?: "people" | "accessibility" | "cart" | "wine" | "hardware-chip" | "storefront" | "pricetag" | "flower" | "medkit" | "cube" | "happy" | "paw" | "restaurant" | "fast-food";
+  route?: string;
+  promo?: string;
+  disabled?: boolean;
+  comingSoon?: boolean;
+}
 
 const ServiceTile = ({
   item,
   onPress,
   colors,
 }: {
-  item: any;
+  item: ServiceItem;
   onPress: () => void;
-  colors: any;
+  colors: { card: string; text: string; textSecondary: string };
 }) => {
   const dynamicTileStyles = StyleSheet.create({
     tileIconContainer: {
@@ -168,6 +195,8 @@ const ServiceTile = ({
       onPress={onPress}
       disabled={item.disabled}
       activeOpacity={0.7}
+      accessibilityState={{ disabled: !!item.disabled }}
+      accessibilityLabel={item.disabled && item.comingSoon ? `${item.name}, coming soon` : item.name}
     >
       {item.promo && (
         <View style={styles.promoBadge}>
@@ -195,12 +224,19 @@ const ServiceTile = ({
       >
         {item.name}
       </CustomText>
+      {item.disabled && item.comingSoon && (
+        <CustomText fontFamily="Regular" fontSize={9} style={styles.comingSoon}>
+          Coming soon
+        </CustomText>
+      )}
     </TouchableOpacity>
   );
 };
 
 const ServicesScreen = () => {
   const { colors } = useThemeStore();
+  const insets = useSafeAreaInsets();
+  const [showRideHistory, setShowRideHistory] = useState(false);
 
   const handleServicePress = (service: { route?: string; disabled?: boolean }) => {
     if (service.disabled) return;
@@ -327,7 +363,7 @@ const ServicesScreen = () => {
           </View>
         </ScrollView>
 
-        <View style={dynamicStyles.bottomNav}>
+        <View style={[dynamicStyles.bottomNav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
           <TouchableOpacity style={styles.navItem} onPress={() => router.push("/customer/home")}>
             <Ionicons name="home-outline" size={RFValue(22)} color={colors.textSecondary} />
             <CustomText fontFamily="Regular" fontSize={10} style={dynamicStyles.navText}>
@@ -342,7 +378,7 @@ const ServicesScreen = () => {
             </CustomText>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.navItem} onPress={() => router.push("/customer/home")}>
+          <TouchableOpacity style={styles.navItem} onPress={() => setShowRideHistory(true)}>
             <Ionicons name="receipt-outline" size={RFValue(22)} color={colors.textSecondary} />
             <CustomText fontFamily="Regular" fontSize={10} style={dynamicStyles.navText}>
               Activity
@@ -360,6 +396,12 @@ const ServicesScreen = () => {
           </TouchableOpacity>
         </View>
       </SafeAreaView>
+
+      <RideHistoryModal
+        visible={showRideHistory}
+        onClose={() => setShowRideHistory(false)}
+        userRole="customer"
+      />
     </View>
   );
 };
@@ -417,6 +459,10 @@ const styles = StyleSheet.create({
     width: "55%",
     height: "55%",
     resizeMode: "contain",
+  },
+  comingSoon: {
+    color: "#888",
+    marginTop: 2,
   },
   navItem: {
     flex: 1,

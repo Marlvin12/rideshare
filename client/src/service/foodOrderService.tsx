@@ -16,12 +16,28 @@ interface DeliveryAddress {
   instructions?: string;
 }
 
+export interface CheckoutValidationResult {
+  valid: boolean;
+  code?: string;
+  message?: string;
+  details?: Record<string, any>;
+  pricing?: {
+    itemsTotal: number;
+    deliveryFee: number;
+    platformFee: number;
+    tax: number;
+    total: number;
+  };
+}
+
 interface CreateOrderPayload {
   restaurantId: string;
   items: OrderItem[];
   deliveryAddress: DeliveryAddress;
   paymentMethod?: string;
   channel?: string;
+  unavailableItemPreference?: 'merchant_recommend' | 'refund' | 'contact_me' | 'cancel_order';
+  idempotencyKey?: string;
 }
 
 interface RatingPayload {
@@ -35,13 +51,40 @@ interface RatingPayload {
   };
 }
 
-export const createFoodOrder = async (payload: CreateOrderPayload) => {
+export const validateFoodOrder = async (
+  payload: Omit<CreateOrderPayload, 'idempotencyKey' | 'paymentMethod' | 'channel'>
+): Promise<CheckoutValidationResult> => {
   try {
-    const response = await appAxios.post('/food-orders/create', payload);
+    const response = await appAxios.post('/food-orders/validate', payload);
     return response.data;
   } catch (error: any) {
-    console.error('Failed to create order:', error);
-    return { success: false, order: null, error: error?.response?.data?.msg || error.message };
+    const data = error?.response?.data;
+    if (data?.code) {
+      return { valid: false, code: data.code, message: data.message, details: data.details };
+    }
+    if (!error.response) {
+      return { valid: false, code: 'NETWORK_ERROR', message: 'You appear to be offline.' };
+    }
+    return { valid: false, code: 'SERVER_ERROR', message: 'Something went wrong. Please try again.' };
+  }
+};
+
+export const createFoodOrder = async (payload: CreateOrderPayload) => {
+  try {
+    const response = await appAxios.post('/food-orders/create', payload, {
+      headers: payload.idempotencyKey
+        ? { 'Idempotency-Key': payload.idempotencyKey }
+        : undefined,
+    });
+    return response.data;
+  } catch (error: any) {
+    const data = error?.response?.data;
+    return {
+      success: false,
+      order: null,
+      code: data?.code ?? 'UNKNOWN',
+      error: data?.message || data?.msg || error.message,
+    };
   }
 };
 
@@ -63,16 +106,6 @@ export const getFoodOrderById = async (id: string) => {
   } catch (error: any) {
     console.error('Failed to fetch order:', error);
     return { success: false, order: null, error: error.message };
-  }
-};
-
-export const acceptBid = async (orderId: string, courierId: string) => {
-  try {
-    const response = await appAxios.patch(`/food-orders/${orderId}/accept-bid`, { courierId });
-    return response.data;
-  } catch (error: any) {
-    console.error('Failed to accept bid:', error);
-    return { success: false, error: error.message };
   }
 };
 
@@ -113,20 +146,6 @@ export const getActiveDelivery = async () => {
   } catch (error: any) {
     console.error('Failed to fetch active delivery:', error);
     return { success: false, hasActiveDelivery: false, order: null, error: error.message };
-  }
-};
-
-export const placeBid = async (orderId: string, amount: number, estimatedTime: number, message?: string) => {
-  try {
-    const response = await appAxios.post(`/food-orders/${orderId}/bid`, {
-      amount,
-      estimatedTime,
-      message,
-    });
-    return response.data;
-  } catch (error: any) {
-    console.error('Failed to place bid:', error);
-    return { success: false, error: error?.response?.data?.msg || error.message };
   }
 };
 

@@ -1,13 +1,33 @@
+import logger from '../config/logger.js';
 import FoodOrder from '../models/FoodOrder.js';
-import DeliveryBid from '../models/DeliveryBid.js';
 import Restaurant from '../models/Restaurant.js';
 import User from '../models/User.js';
+import EarningsTransaction from '../models/EarningsTransaction.js';
 import {
   getRestaurantById as getMockRestaurantById,
   getMenuItemById as getMockMenuItemById,
 } from '../utils/mockEatsData.js';
 
-const USE_MOCK_DATA = true;
+import { assertStatusTransition } from '../utils/orderStatus.js';
+import { getDeliveryFeeRange } from '../utils/mapUtils.js';
+
+const USE_MOCK_DATA =
+  process.env.NODE_ENV === 'production'
+    ? false
+    : process.env.USE_MOCK_DATA === '1' || process.env.USE_MOCK_DATA === 'true';
+
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 100;
+const DEFAULT_MAX_DELIVERY_KM = 25;
+const PLATFORM_FEE_RATE = 0.1;
+const VALID_ITEM_PREFERENCES = ['merchant_recommend', 'refund', 'contact_me', 'cancel_order'];
+
+const parsePagination = (query) => {
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(query.limit, 10) || DEFAULT_PAGE_SIZE));
+  const skip = (page - 1) * limit;
+  return { page, limit, skip };
+};
 
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371;
@@ -23,72 +43,185 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
+/**
+ * Validates an order payload against restaurant rules and current inventory.
+ * Returns either an error shape or the fully-computed pricing and resolved items.
+ * Does NOT persist anything — safe to call as a dry-run before createOrder.
+ */
+const runOrderValidation = async ({ restaurantId, items, deliveryAddress }) => {
+  let restaurant;
+  if (USE_MOCK_DATA) {
+    restaurant = getMockRestaurantById(restaurantId);
+  } else {
+    restaurant = await Restaurant.findById(restaurantId);
+  }
+
+  if (!restaurant) {
+    return {
+      ok: false,
+      statusCode: 404,
+      code: 'RESTAURANT_NOT_FOUND',
+      message: 'Restaurant not found',
+      details: { restaurantId },
+    };
+  }
+
+  if (!restaurant.isOpen) {
+    return {
+      ok: false,
+      statusCode: 400,
+      code: 'RESTAURANT_CLOSED',
+      message: 'This restaurant is currently closed',
+      details: { restaurantId },
+    };
+  }
+
+  let itemsTotal = 0;
+  const unavailableItems = [];
+  const orderItems = items.map((item) => {
+    let menuItem;
+    if (USE_MOCK_DATA) {
+      menuItem = getMockMenuItemById(item.menuItemId);
+    }
+
+    const sourcePrice = menuItem ? menuItem.price : item.price;
+    const itemPrice = typeof sourcePrice === 'number' ? sourcePrice : 0;
+
+    if (menuItem && menuItem.isAvailable === false) {
+      unavailableItems.push({ menuItemId: item.menuItemId, name: item.name });
+    }
+
+    const subtotal = itemPrice * item.quantity;
+    itemsTotal += subtotal;
+
+    return {
+      menuItemId: item.menuItemId,
+      name: item.name || (menuItem ? menuItem.name : 'Unknown Item'),
+      price: itemPrice,
+      quantity: item.quantity,
+      customizations: item.customizations || {},
+      subtotal,
+      specialInstructions: item.specialInstructions,
+    };
+  });
+
+  if (unavailableItems.length > 0) {
+    return {
+      ok: false,
+      statusCode: 409,
+      code: 'ITEMS_UNAVAILABLE',
+      message: 'One or more items are no longer available',
+      details: { items: unavailableItems },
+    };
+  }
+
+  const deliveryDistance = calculateDistance(
+    restaurant.location.latitude,
+    restaurant.location.longitude,
+    deliveryAddress.latitude,
+    deliveryAddress.longitude
+  );
+
+  const maxKm =
+    typeof restaurant.maxDeliveryDistanceKm === 'number'
+      ? restaurant.maxDeliveryDistanceKm
+      : DEFAULT_MAX_DELIVERY_KM;
+
+  if (deliveryDistance > maxKm) {
+    return {
+      ok: false,
+      statusCode: 400,
+      code: 'ADDRESS_OUT_OF_RANGE',
+      message: "Delivery address is outside this restaurant's delivery area",
+      details: { maxKm, distanceKm: parseFloat(deliveryDistance.toFixed(2)) },
+    };
+  }
+
+  if (itemsTotal < (restaurant.minimumOrder || 0)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      code: 'MINIMUM_ORDER_NOT_MET',
+      message: `Minimum order amount is ${restaurant.minimumOrder}`,
+      details: { minimumOrder: restaurant.minimumOrder || 0, itemsTotal },
+    };
+  }
+
+  const { min, max, estimate } = getDeliveryFeeRange(deliveryDistance);
+  const platformFee = parseFloat((itemsTotal * PLATFORM_FEE_RATE).toFixed(2));
+  const deliveryFee = estimate;
+  const tax = 0;
+  const total = parseFloat((itemsTotal + deliveryFee + platformFee + tax).toFixed(2));
+
+  return {
+    ok: true,
+    restaurant,
+    orderItems,
+    deliveryDistance,
+    pricing: { itemsTotal, deliveryFee, platformFee, tax, total },
+    suggestedFeeRange: { min, max, estimate },
+  };
+};
+
+/**
+ * Dry-run validation endpoint. Checks all constraints and returns live pricing
+ * without creating an order. Used by checkout for pre-submit price/inventory refresh.
+ */
+export const validateOrder = async (req, res) => {
+  try {
+    const { restaurantId, items, deliveryAddress } = req.body;
+    const result = await runOrderValidation({ restaurantId, items, deliveryAddress });
+
+    if (!result.ok) {
+      return res.status(result.statusCode).json({
+        valid: false,
+        code: result.code,
+        message: result.message,
+        details: result.details,
+      });
+    }
+
+    return res.status(200).json({ valid: true, pricing: result.pricing });
+  } catch (error) {
+    logger.error({ err: error }, 'validateOrder failed');
+    res.status(500).json({ valid: false, code: 'SERVER_ERROR', message: 'Validation failed' });
+  }
+};
+
 export const createOrder = async (req, res) => {
   try {
-    const { restaurantId, items, deliveryAddress, paymentMethod, channel } = req.body;
-    const customerId = req.user._id;
+    const {
+      restaurantId,
+      items,
+      deliveryAddress,
+      paymentMethod,
+      channel,
+      unavailableItemPreference,
+      idempotencyKey,
+    } = req.body;
+    const customerId = req.user.id;
 
-    let restaurant;
-    if (USE_MOCK_DATA) {
-      restaurant = getMockRestaurantById(restaurantId);
-    } else {
-      restaurant = await Restaurant.findById(restaurantId);
-    }
-
-    if (!restaurant) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Restaurant not found',
-      });
-    }
-
-    if (!restaurant.isOpen) {
-      return res.status(400).json({
-        success: false,
-        msg: 'Restaurant is currently closed',
-      });
-    }
-
-    let itemsTotal = 0;
-    const orderItems = items.map((item) => {
-      let menuItem;
-      if (USE_MOCK_DATA) {
-        menuItem = getMockMenuItemById(item.menuItemId);
+    // Idempotency: return existing order if this key was already used by this customer.
+    if (idempotencyKey) {
+      const existing = await FoodOrder.findOne({ customerId, idempotencyKey });
+      if (existing) {
+        return res.status(200).json({ success: true, msg: 'Order already placed', order: existing });
       }
+    }
 
-      const itemPrice = menuItem ? menuItem.price : item.price;
-      const subtotal = itemPrice * item.quantity;
-      itemsTotal += subtotal;
+    const validation = await runOrderValidation({ restaurantId, items, deliveryAddress });
 
-      return {
-        menuItemId: item.menuItemId,
-        name: item.name || (menuItem ? menuItem.name : 'Unknown Item'),
-        price: itemPrice,
-        quantity: item.quantity,
-        customizations: item.customizations || {},
-        subtotal,
-        specialInstructions: item.specialInstructions,
-      };
-    });
-
-    const deliveryFee = restaurant.deliveryFee || 2;
-    const platformFee = itemsTotal * 0.1;
-    const tax = 0;
-    const total = itemsTotal + deliveryFee + platformFee + tax;
-
-    if (itemsTotal < (restaurant.minimumOrder || 0)) {
-      return res.status(400).json({
+    if (!validation.ok) {
+      return res.status(validation.statusCode).json({
         success: false,
-        msg: `Minimum order amount is $${restaurant.minimumOrder}`,
+        code: validation.code,
+        message: validation.message,
+        details: validation.details,
       });
     }
 
-    const deliveryDistance = calculateDistance(
-      restaurant.location.latitude,
-      restaurant.location.longitude,
-      deliveryAddress.latitude,
-      deliveryAddress.longitude
-    );
+    const { restaurant, orderItems, deliveryDistance, pricing, suggestedFeeRange } = validation;
+    const { itemsTotal, deliveryFee, platformFee, tax, total } = pricing;
 
     const order = new FoodOrder({
       customerId,
@@ -100,26 +233,29 @@ export const createOrder = async (req, res) => {
         platformFee,
         tax,
         total,
+        restaurantShare: itemsTotal,
+        platformShare: platformFee,
+        courierShare: 0,
       },
       deliveryAddress,
       restaurantAddress: restaurant.location,
       deliveryDistance,
+      suggestedDeliveryFee: suggestedFeeRange,
       status: 'pending',
       paymentMethod: paymentMethod || 'cash',
       channel: channel || 'app',
       estimatedPreparationTime: restaurant.preparationTime || 30,
-      timeline: [
-        {
-          status: 'pending',
-          timestamp: new Date(),
-          message: 'Order placed',
-        },
-      ],
+      timeline: [{ status: 'pending', timestamp: new Date(), message: 'Order placed' }],
+      unavailableItemPreference:
+        VALID_ITEM_PREFERENCES.includes(unavailableItemPreference)
+          ? unavailableItemPreference
+          : undefined,
+      idempotencyKey: idempotencyKey || undefined,
     });
 
     await order.save();
 
-    const io = req.app.get('io');
+    const io = req.io;
     if (io) {
       io.to(`restaurant_${restaurantId}`).emit('order:new', {
         orderId: order._id,
@@ -127,63 +263,180 @@ export const createOrder = async (req, res) => {
         items: order.items,
         total: order.pricing.total,
         deliveryAddress: order.deliveryAddress,
+        unavailableItemPreference: order.unavailableItemPreference,
       });
     }
 
-    res.status(201).json({
-      success: true,
-      msg: 'Order placed successfully',
-      order,
-    });
+    res.status(201).json({ success: true, msg: 'Order placed successfully', order });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to create order',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'createOrder failed');
+    res.status(500).json({ success: false, msg: 'Failed to create order' });
+  }
+};
+
+/**
+ * Called by a merchant when a cart item becomes unavailable during preparation.
+ * Executes the customer's pre-selected unavailability preference and emits the
+ * appropriate socket events so the customer is notified without polling.
+ */
+export const handleItemUnavailable = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { menuItemId } = req.body;
+
+    const order = await FoodOrder.findById(id);
+    if (!order) {
+      return res.status(404).json({ success: false, code: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    }
+
+    const allowedStatuses = ['pending', 'restaurant_accepted', 'preparing'];
+    if (!allowedStatuses.includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_ORDER_STATE',
+        message: 'Item availability can only be reported while the order is being prepared',
+      });
+    }
+
+    const affectedItem = order.items.find((i) => i.menuItemId.toString() === menuItemId);
+    if (!affectedItem) {
+      return res.status(404).json({
+        success: false,
+        code: 'ITEM_NOT_IN_ORDER',
+        message: 'Item not found in this order',
+      });
+    }
+
+    const preference = order.unavailableItemPreference || 'contact_me';
+    const io = req.io;
+    let actionTaken;
+
+    if (preference === 'refund') {
+      order.items = order.items.filter((i) => i.menuItemId.toString() !== menuItemId);
+      order.pricing.itemsTotal = parseFloat((order.pricing.itemsTotal - affectedItem.subtotal).toFixed(2));
+      order.pricing.platformFee = parseFloat((order.pricing.itemsTotal * PLATFORM_FEE_RATE).toFixed(2));
+      order.pricing.total = parseFloat(
+        (order.pricing.itemsTotal + order.pricing.deliveryFee + order.pricing.platformFee).toFixed(2)
+      );
+      order.timeline.push({
+        status: order.status,
+        timestamp: new Date(),
+        message: `Item "${affectedItem.name}" refunded — unavailable`,
+      });
+      actionTaken = 'refunded';
+
+      if (io) {
+        io.to(`order_${id}`).emit('order:item_unavailable', {
+          orderId: id,
+          menuItemId,
+          itemName: affectedItem.name,
+          action: 'refunded',
+          updatedPricing: order.pricing,
+        });
+      }
+    } else if (preference === 'cancel_order') {
+      try {
+        assertStatusTransition(order.status, 'cancelled');
+      } catch {
+        return res.status(400).json({
+          success: false,
+          code: 'CANNOT_CANCEL',
+          message: 'Order cannot be cancelled at this stage',
+        });
+      }
+      order.status = 'cancelled';
+      order.cancellationReason = `Item "${affectedItem.name}" became unavailable`;
+      order.timeline.push({
+        status: 'cancelled',
+        timestamp: new Date(),
+        message: 'Order cancelled — item unavailable',
+      });
+      actionTaken = 'cancelled';
+
+      if (io) {
+        io.to(`order_${id}`).emit('order:status', {
+          orderId: id,
+          status: 'cancelled',
+          message: `Your order was cancelled because "${affectedItem.name}" is no longer available`,
+        });
+        io.to(`restaurant_${order.restaurantId}`).emit('order:cancelled', {
+          orderId: id,
+          orderNumber: order.orderNumber,
+        });
+      }
+    } else {
+      // 'merchant_recommend' → customer picks alternative; 'contact_me' → direct contact
+      const action = preference === 'merchant_recommend' ? 'select_replacement' : 'contact_required';
+      order.timeline.push({
+        status: order.status,
+        timestamp: new Date(),
+        message: `Item "${affectedItem.name}" unavailable — customer notified`,
+      });
+      actionTaken = action;
+
+      if (io) {
+        io.to(`order_${id}`).emit('order:item_unavailable', {
+          orderId: id,
+          menuItemId,
+          itemName: affectedItem.name,
+          action,
+        });
+      }
+    }
+
+    await order.save();
+    res.status(200).json({ success: true, preference, actionTaken, order });
+  } catch (error) {
+    logger.error({ err: error }, 'handleItemUnavailable failed');
+    res.status(500).json({ success: false, msg: 'Failed to process item unavailability' });
   }
 };
 
 export const getOrders = async (req, res) => {
   try {
-    const userId = req.user._id;
-    const userRole = req.user.role;
+    const userId = req.user.id;
+    const userRole = req.user.role || 'customer';
     const { status } = req.query;
+    const { page, limit, skip } = parsePagination(req.query);
 
-    let query = {};
-
+    const query = {};
     if (userRole === 'customer') {
       query.customerId = userId;
     } else if (userRole === 'rider') {
       query.courierId = userId;
     }
-
     if (status) {
       query.status = status;
     }
 
-    const orders = await FoodOrder.find(query)
-      .sort({ createdAt: -1 })
-      .populate('restaurantId', 'name imageUrl')
-      .populate('courierId', 'name phone');
+    const [orders, total] = await Promise.all([
+      FoodOrder.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('restaurantId', 'name imageUrl')
+        .populate('courierId', 'name phone'),
+      FoodOrder.countDocuments(query),
+    ]);
 
     res.status(200).json({
       success: true,
       count: orders.length,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
       orders,
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to fetch orders',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'getOrders failed');
+    res.status(500).json({ success: false, msg: 'Failed to fetch orders' });
   }
 };
 
 export const getOrderById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id;
 
     const order = await FoodOrder.findById(id)
       .populate('restaurantId', 'name imageUrl location contactPhone')
@@ -191,22 +444,20 @@ export const getOrderById = async (req, res) => {
       .populate('customerId', 'name phone');
 
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Order not found',
-      });
+      return res.status(404).json({ success: false, msg: 'Order not found' });
     }
 
-    res.status(200).json({
-      success: true,
-      order,
-    });
+    const isOwner =
+      order.customerId?._id?.toString() === userId ||
+      order.courierId?._id?.toString() === userId;
+    if (!isOwner) {
+      return res.status(403).json({ success: false, msg: 'Not authorized to view this order' });
+    }
+
+    res.status(200).json({ success: true, order });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to fetch order',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'getOrderById failed');
+    res.status(500).json({ success: false, msg: 'Failed to fetch order' });
   }
 };
 
@@ -216,19 +467,14 @@ export const restaurantAcceptOrder = async (req, res) => {
     const { preparationTime } = req.body;
 
     const order = await FoodOrder.findById(id);
-
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Order not found',
-      });
+      return res.status(404).json({ success: false, msg: 'Order not found' });
     }
 
-    if (order.status !== 'pending') {
-      return res.status(400).json({
-        success: false,
-        msg: 'Order cannot be accepted in current state',
-      });
+    try {
+      assertStatusTransition(order.status, 'restaurant_accepted');
+    } catch (e) {
+      return res.status(400).json({ success: false, msg: 'Order cannot be accepted in current state' });
     }
 
     order.status = 'restaurant_accepted';
@@ -236,12 +482,12 @@ export const restaurantAcceptOrder = async (req, res) => {
     order.timeline.push({
       status: 'restaurant_accepted',
       timestamp: new Date(),
-      message: `Order accepted by restaurant. Prep time: ${order.estimatedPreparationTime} mins`,
+      message: `Order accepted. Prep time: ${order.estimatedPreparationTime} mins`,
     });
 
     await order.save();
 
-    const io = req.app.get('io');
+    const io = req.io;
     if (io) {
       io.to(`order_${id}`).emit('order:status', {
         orderId: id,
@@ -251,17 +497,10 @@ export const restaurantAcceptOrder = async (req, res) => {
       });
     }
 
-    res.status(200).json({
-      success: true,
-      msg: 'Order accepted',
-      order,
-    });
+    res.status(200).json({ success: true, msg: 'Order accepted', order });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to accept order',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'restaurantAcceptOrder failed');
+    res.status(500).json({ success: false, msg: 'Failed to accept order' });
   }
 };
 
@@ -271,12 +510,14 @@ export const restaurantRejectOrder = async (req, res) => {
     const { reason } = req.body;
 
     const order = await FoodOrder.findById(id);
-
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Order not found',
-      });
+      return res.status(404).json({ success: false, msg: 'Order not found' });
+    }
+
+    try {
+      assertStatusTransition(order.status, 'cancelled');
+    } catch (e) {
+      return res.status(400).json({ success: false, msg: 'Order cannot be rejected in current state' });
     }
 
     order.status = 'cancelled';
@@ -284,373 +525,259 @@ export const restaurantRejectOrder = async (req, res) => {
     order.timeline.push({
       status: 'cancelled',
       timestamp: new Date(),
-      message: `Order rejected by restaurant: ${order.cancellationReason}`,
+      message: 'Order rejected by restaurant',
     });
 
     await order.save();
 
-    const io = req.app.get('io');
+    const io = req.io;
     if (io) {
       io.to(`order_${id}`).emit('order:status', {
         orderId: id,
         status: 'cancelled',
-        message: `Order rejected: ${order.cancellationReason}`,
+        message: 'Order rejected by restaurant',
       });
     }
 
-    res.status(200).json({
-      success: true,
-      msg: 'Order rejected',
-      order,
-    });
+    res.status(200).json({ success: true, msg: 'Order rejected', order });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to reject order',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'restaurantRejectOrder failed');
+    res.status(500).json({ success: false, msg: 'Failed to reject order' });
   }
 };
+
+const COURIER_SEARCH_INTERVAL_MS = 15_000;
+const COURIER_SEARCH_MAX_RETRIES = 20;
+const MAX_COURIER_DISTANCE_M = 60_000;
+
+async function assignNearestCourier(order, io) {
+  const geolib = (await import('geolib')).default;
+  const onDutyRiders = io._onDutyRiders;
+  if (!onDutyRiders) {
+    logger.warn({ orderId: order._id }, 'No onDutyRiders map available');
+    return;
+  }
+
+  const restaurantCoords = {
+    latitude: order.restaurantAddress?.latitude,
+    longitude: order.restaurantAddress?.longitude,
+  };
+
+  if (!restaurantCoords.latitude || !restaurantCoords.longitude) {
+    logger.warn({ orderId: order._id }, 'Order missing restaurant coordinates');
+    return;
+  }
+
+  let retries = 0;
+
+  const tryAssign = async () => {
+    const freshOrder = await FoodOrder.findById(order._id).select('status');
+    if (!freshOrder || freshOrder.status !== 'courier_searching') return;
+
+    const candidates = Array.from(onDutyRiders.entries())
+      .map(([riderId, data]) => ({
+        riderId,
+        socketId: data.socketId,
+        distance: geolib.getDistance(data.coords, restaurantCoords),
+      }))
+      .filter((r) => r.distance <= MAX_COURIER_DISTANCE_M)
+      .sort((a, b) => a.distance - b.distance);
+
+    if (candidates.length > 0) {
+      const chosen = candidates[0];
+      const courier = await User.findById(chosen.riderId).select('name phone stats.rating');
+
+      freshOrder.status = 'courier_assigned';
+      freshOrder.courierId = chosen.riderId;
+
+      const deliveryFee = order.pricing.deliveryFee;
+      freshOrder.pricing = {
+        ...order.pricing,
+        courierShare: deliveryFee,
+      };
+
+      freshOrder.timeline.push(
+        { status: 'courier_assigned', timestamp: new Date(), message: 'Courier auto-assigned' }
+      );
+
+      const estimatedDelivery = new Date();
+      estimatedDelivery.setMinutes(estimatedDelivery.getMinutes() + 30);
+      freshOrder.estimatedDeliveryTime = estimatedDelivery;
+
+      await freshOrder.save();
+
+      if (io) {
+        io.to(`order_${order._id}`).emit('order:status', {
+          orderId: order._id,
+          status: 'courier_assigned',
+          message: 'A courier has been assigned to your order',
+          courier: courier ? { name: courier.name, rating: courier.stats?.rating || 5.0 } : null,
+        });
+
+        io.to(`courier_${chosen.riderId}`).emit('delivery:assignment', {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          restaurantAddress: order.restaurantAddress,
+          deliveryAddress: order.deliveryAddress,
+          deliveryFee,
+          itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
+        });
+      }
+
+      logger.info({ orderId: order._id, courierId: chosen.riderId }, 'Courier auto-assigned');
+      return;
+    }
+
+    retries++;
+    if (retries >= COURIER_SEARCH_MAX_RETRIES) {
+      const staleOrder = await FoodOrder.findById(order._id);
+      if (staleOrder && staleOrder.status === 'courier_searching') {
+        staleOrder.status = 'cancelled';
+        staleOrder.cancellationReason = 'No couriers available';
+        staleOrder.timeline.push({
+          status: 'cancelled',
+          timestamp: new Date(),
+          message: 'No couriers available after extended search',
+        });
+        await staleOrder.save();
+
+        if (io) {
+          io.to(`order_${order._id}`).emit('order:status', {
+            orderId: order._id,
+            status: 'cancelled',
+            message: 'No couriers are available right now. Your order has been cancelled.',
+          });
+        }
+      }
+      logger.warn({ orderId: order._id }, 'Courier search timed out');
+      return;
+    }
+
+    setTimeout(tryAssign, COURIER_SEARCH_INTERVAL_MS);
+  };
+
+  tryAssign();
+}
 
 export const markReady = async (req, res) => {
   try {
     const { id } = req.params;
 
     const order = await FoodOrder.findById(id);
-
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Order not found',
-      });
+      return res.status(404).json({ success: false, msg: 'Order not found' });
     }
 
-    order.status = 'ready_for_pickup';
-    order.timeline.push({
-      status: 'ready_for_pickup',
-      timestamp: new Date(),
-      message: 'Food is ready for pickup',
-    });
+    try {
+      assertStatusTransition(order.status, 'courier_searching');
+    } catch (e) {
+      return res.status(400).json({ success: false, msg: 'Order is not in a preparable state' });
+    }
+
+    order.status = 'courier_searching';
+    order.readyForPickupAt = new Date();
+    order.timeline.push(
+      { status: 'ready_for_pickup', timestamp: new Date(), message: 'Food is ready for pickup' },
+      { status: 'courier_searching', timestamp: new Date(), message: 'Searching for nearest courier' }
+    );
 
     await order.save();
 
-    order.status = 'bidding_open';
-    order.timeline.push({
-      status: 'bidding_open',
-      timestamp: new Date(),
-      message: 'Open for courier bidding',
-    });
-
-    await order.save();
-
-    const io = req.app.get('io');
+    const io = req.io;
     if (io) {
       io.to(`order_${id}`).emit('order:status', {
         orderId: id,
-        status: 'bidding_open',
+        status: 'courier_searching',
         message: 'Food is ready! Finding a courier...',
-      });
-
-      io.emit('delivery:offer', {
-        orderId: order._id,
-        orderNumber: order.orderNumber,
-        restaurantAddress: order.restaurantAddress,
-        deliveryAddress: order.deliveryAddress,
-        deliveryDistance: order.deliveryDistance,
-        orderTotal: order.pricing.total,
-        itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
       });
     }
 
-    res.status(200).json({
-      success: true,
-      msg: 'Order ready for pickup, bidding opened',
-      order,
-    });
+    assignNearestCourier(order, io);
+
+    res.status(200).json({ success: true, msg: 'Order ready for pickup, searching for courier', order });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to mark order as ready',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'markReady failed');
+    res.status(500).json({ success: false, msg: 'Failed to mark order as ready' });
   }
 };
 
 export const placeBid = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { amount, estimatedTime, message } = req.body;
-    const courierId = req.user._id;
-
-    const order = await FoodOrder.findById(id);
-
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Order not found',
-      });
-    }
-
-    if (order.status !== 'bidding_open') {
-      return res.status(400).json({
-        success: false,
-        msg: 'Order is not open for bidding',
-      });
-    }
-
-    const existingBid = order.bids.find(
-      (bid) => bid.courierId.toString() === courierId.toString()
-    );
-
-    if (existingBid) {
-      return res.status(400).json({
-        success: false,
-        msg: 'You have already placed a bid on this order',
-      });
-    }
-
-    const bid = {
-      courierId,
-      amount,
-      estimatedTime,
-      message,
-      status: 'pending',
-      createdAt: new Date(),
-    };
-
-    order.bids.push(bid);
-    await order.save();
-
-    const deliveryBid = new DeliveryBid({
-      foodOrderId: id,
-      courierId,
-      amount,
-      estimatedPickupTime: 10,
-      estimatedDeliveryTime: estimatedTime,
-      distance: order.deliveryDistance,
-      message,
-    });
-
-    await deliveryBid.save();
-
-    const io = req.app.get('io');
-    if (io) {
-      const courier = await User.findById(courierId).select('name phone rating');
-      
-      io.to(`order_${id}`).emit('delivery:bid', {
-        orderId: id,
-        bid: {
-          ...bid,
-          courier: courier || { name: 'Courier', rating: 4.5 },
-        },
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      msg: 'Bid placed successfully',
-      bid,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to place bid',
-      error: error.message,
-    });
-  }
+  res.status(410).json({ success: false, msg: 'Bidding has been removed. Couriers are now auto-assigned.' });
 };
 
 export const acceptBid = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { courierId } = req.body;
-
-    const order = await FoodOrder.findById(id);
-
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Order not found',
-      });
-    }
-
-    const bid = order.bids.find(
-      (b) => b.courierId.toString() === courierId.toString()
-    );
-
-    if (!bid) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Bid not found',
-      });
-    }
-
-    bid.status = 'accepted';
-    order.bids.forEach((b) => {
-      if (b.courierId.toString() !== courierId.toString()) {
-        b.status = 'rejected';
-      }
-    });
-
-    order.status = 'courier_assigned';
-    order.courierId = courierId;
-    order.acceptedBid = {
-      courierId,
-      amount: bid.amount,
-      acceptedAt: new Date(),
-    };
-
-    const estimatedDelivery = new Date();
-    estimatedDelivery.setMinutes(estimatedDelivery.getMinutes() + (bid.estimatedTime || 30));
-    order.estimatedDeliveryTime = estimatedDelivery;
-
-    order.timeline.push({
-      status: 'courier_assigned',
-      timestamp: new Date(),
-      message: 'Courier assigned to your order',
-    });
-
-    await order.save();
-
-    await DeliveryBid.updateMany(
-      { foodOrderId: id, courierId: { $ne: courierId } },
-      { status: 'rejected' }
-    );
-
-    await DeliveryBid.updateOne(
-      { foodOrderId: id, courierId },
-      { status: 'accepted' }
-    );
-
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`order_${id}`).emit('order:status', {
-        orderId: id,
-        status: 'courier_assigned',
-        message: 'A courier has been assigned',
-        courierId,
-        estimatedDelivery: order.estimatedDeliveryTime,
-      });
-
-      io.to(`courier_${courierId}`).emit('delivery:assigned', {
-        orderId: id,
-        orderNumber: order.orderNumber,
-        restaurantAddress: order.restaurantAddress,
-        deliveryAddress: order.deliveryAddress,
-        items: order.items,
-        acceptedAmount: bid.amount,
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      msg: 'Bid accepted, courier assigned',
-      order,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to accept bid',
-      error: error.message,
-    });
-  }
+  res.status(410).json({ success: false, msg: 'Bidding has been removed. Couriers are now auto-assigned.' });
 };
 
 export const markPickedUp = async (req, res) => {
   try {
     const { id } = req.params;
-    const courierId = req.user._id;
+    const courierId = req.user.id;
 
     const order = await FoodOrder.findById(id);
-
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Order not found',
-      });
+      return res.status(404).json({ success: false, msg: 'Order not found' });
     }
 
-    if (order.courierId.toString() !== courierId.toString()) {
-      return res.status(403).json({
-        success: false,
-        msg: 'You are not assigned to this order',
-      });
+    if (!order.courierId || order.courierId.toString() !== courierId.toString()) {
+      return res.status(403).json({ success: false, msg: 'You are not assigned to this order' });
+    }
+
+    try {
+      assertStatusTransition(order.status, 'picked_up');
+    } catch (e) {
+      return res.status(400).json({ success: false, msg: 'Order cannot be marked as picked up in current state' });
     }
 
     order.status = 'picked_up';
-    order.timeline.push({
-      status: 'picked_up',
-      timestamp: new Date(),
-      message: 'Courier has picked up your order',
-    });
-
+    order.timeline.push({ status: 'picked_up', timestamp: new Date(), message: 'Courier has picked up your order' });
     await order.save();
 
-    const io = req.app.get('io');
+    const io = req.io;
     if (io) {
-      io.to(`order_${id}`).emit('order:status', {
-        orderId: id,
-        status: 'picked_up',
-        message: 'Your food has been picked up!',
-      });
+      io.to(`order_${id}`).emit('order:status', { orderId: id, status: 'picked_up', message: 'Your food has been picked up!' });
     }
 
-    res.status(200).json({
-      success: true,
-      msg: 'Order marked as picked up',
-      order,
-    });
+    res.status(200).json({ success: true, msg: 'Order marked as picked up', order });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to mark as picked up',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'markPickedUp failed');
+    res.status(500).json({ success: false, msg: 'Failed to mark as picked up' });
   }
 };
 
 export const markInTransit = async (req, res) => {
   try {
     const { id } = req.params;
+    const courierId = req.user.id;
 
     const order = await FoodOrder.findById(id);
-
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Order not found',
-      });
+      return res.status(404).json({ success: false, msg: 'Order not found' });
+    }
+
+    if (!order.courierId || order.courierId.toString() !== courierId.toString()) {
+      return res.status(403).json({ success: false, msg: 'You are not assigned to this order' });
+    }
+
+    try {
+      assertStatusTransition(order.status, 'in_transit');
+    } catch (e) {
+      return res.status(400).json({ success: false, msg: 'Order cannot be marked in transit in current state' });
     }
 
     order.status = 'in_transit';
-    order.timeline.push({
-      status: 'in_transit',
-      timestamp: new Date(),
-      message: 'Courier is on the way',
-    });
-
+    order.timeline.push({ status: 'in_transit', timestamp: new Date(), message: 'Courier is on the way' });
     await order.save();
 
-    const io = req.app.get('io');
+    const io = req.io;
     if (io) {
-      io.to(`order_${id}`).emit('order:status', {
-        orderId: id,
-        status: 'in_transit',
-        message: 'Your order is on its way!',
-      });
+      io.to(`order_${id}`).emit('order:status', { orderId: id, status: 'in_transit', message: 'Your order is on its way!' });
     }
 
-    res.status(200).json({
-      success: true,
-      msg: 'Order in transit',
-      order,
-    });
+    res.status(200).json({ success: true, msg: 'Order in transit', order });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to update order status',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'markInTransit failed');
+    res.status(500).json({ success: false, msg: 'Failed to update order status' });
   }
 };
 
@@ -658,66 +785,64 @@ export const markDelivered = async (req, res) => {
   try {
     const { id } = req.params;
     const { deliveryProofImage } = req.body;
-    const courierId = req.user._id;
+    const courierId = req.user.id;
 
     const order = await FoodOrder.findById(id);
-
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Order not found',
-      });
+      return res.status(404).json({ success: false, msg: 'Order not found' });
     }
 
-    if (order.courierId.toString() !== courierId.toString()) {
-      return res.status(403).json({
-        success: false,
-        msg: 'You are not assigned to this order',
-      });
+    if (!order.courierId || order.courierId.toString() !== courierId.toString()) {
+      return res.status(403).json({ success: false, msg: 'You are not assigned to this order' });
+    }
+
+    try {
+      assertStatusTransition(order.status, 'delivered');
+    } catch (e) {
+      return res.status(400).json({ success: false, msg: 'Order cannot be marked as delivered in current state' });
     }
 
     order.status = 'delivered';
     order.actualDeliveryTime = new Date();
     order.paymentStatus = 'completed';
-    if (deliveryProofImage) {
-      order.deliveryProofImage = deliveryProofImage;
-    }
-    order.timeline.push({
-      status: 'delivered',
-      timestamp: new Date(),
-      message: 'Order delivered successfully',
-    });
-
+    if (deliveryProofImage) order.deliveryProofImage = deliveryProofImage;
+    order.timeline.push({ status: 'delivered', timestamp: new Date(), message: 'Order delivered successfully' });
     await order.save();
 
-    const courierEarnings = order.acceptedBid.amount * 0.8;
+    const courierEarnings = (order.pricing?.courierShare || order.pricing?.deliveryFee || 0) * 0.8;
+    await User.findByIdAndUpdate(courierId, {
+      $inc: { 'earnings.total': courierEarnings, 'earnings.available': courierEarnings },
+    });
+    await EarningsTransaction.create({
+      userId: courierId,
+      amount: courierEarnings,
+      type: 'delivery',
+      referenceType: 'FoodOrder',
+      referenceId: order._id,
+    });
 
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`order_${id}`).emit('order:status', {
-        orderId: id,
-        status: 'delivered',
-        message: 'Your order has been delivered!',
-      });
-
-      io.to(`courier_${courierId}`).emit('delivery:completed', {
-        orderId: id,
-        earnings: courierEarnings,
+    const restaurantShare = order.pricing?.restaurantShare ?? order.pricing.itemsTotal;
+    if (restaurantShare > 0 && order.restaurantId) {
+      await Restaurant.findByIdAndUpdate(order.restaurantId, { $inc: { 'earnings.available': restaurantShare } });
+      await EarningsTransaction.create({
+        restaurantId: order.restaurantId,
+        amount: restaurantShare,
+        type: 'order_settlement',
+        referenceType: 'FoodOrder',
+        referenceId: order._id,
       });
     }
 
-    res.status(200).json({
-      success: true,
-      msg: 'Order delivered successfully',
-      order,
-      courierEarnings,
-    });
+    const io = req.io;
+    if (io) {
+      io.to(`order_${id}`).emit('order:status', { orderId: id, status: 'delivered', message: 'Your order has been delivered!' });
+      io.to(`courier_${courierId}`).emit('delivery:completed', { orderId: id, earnings: courierEarnings });
+    }
+
+    res.status(200).json({ success: true, msg: 'Order delivered successfully', order, courierEarnings });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to mark as delivered',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'markDelivered failed');
+    res.status(500).json({ success: false, msg: 'Failed to mark as delivered' });
   }
 };
 
@@ -725,72 +850,41 @@ export const cancelOrder = async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
+    const userId = req.user.id;
 
     const order = await FoodOrder.findById(id);
-
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Order not found',
-      });
+      return res.status(404).json({ success: false, msg: 'Order not found' });
     }
 
-    const cancellableStatuses = [
-      'pending',
-      'restaurant_accepted',
-      'preparing',
-      'ready_for_pickup',
-      'bidding_open',
-    ];
+    if (order.customerId.toString() !== userId) {
+      return res.status(403).json({ success: false, msg: 'Not authorized to cancel this order' });
+    }
 
-    if (!cancellableStatuses.includes(order.status)) {
-      return res.status(400).json({
-        success: false,
-        msg: 'Order cannot be cancelled at this stage',
-      });
+    try {
+      assertStatusTransition(order.status, 'cancelled');
+    } catch (e) {
+      return res.status(400).json({ success: false, msg: 'Order cannot be cancelled at this stage' });
     }
 
     order.status = 'cancelled';
     order.cancellationReason = reason;
-    order.timeline.push({
-      status: 'cancelled',
-      timestamp: new Date(),
-      message: `Order cancelled: ${reason}`,
-    });
-
+    order.timeline.push({ status: 'cancelled', timestamp: new Date(), message: 'Order cancelled by customer' });
     await order.save();
 
-    const io = req.app.get('io');
+    const io = req.io;
     if (io) {
-      io.to(`order_${id}`).emit('order:status', {
-        orderId: id,
-        status: 'cancelled',
-        message: 'Order has been cancelled',
-      });
-
-      io.to(`restaurant_${order.restaurantId}`).emit('order:cancelled', {
-        orderId: id,
-        orderNumber: order.orderNumber,
-      });
-
+      io.to(`order_${id}`).emit('order:status', { orderId: id, status: 'cancelled', message: 'Order has been cancelled' });
+      io.to(`restaurant_${order.restaurantId}`).emit('order:cancelled', { orderId: id, orderNumber: order.orderNumber });
       if (order.courierId) {
-        io.to(`courier_${order.courierId}`).emit('delivery:cancelled', {
-          orderId: id,
-        });
+        io.to(`courier_${order.courierId}`).emit('delivery:cancelled', { orderId: id });
       }
     }
 
-    res.status(200).json({
-      success: true,
-      msg: 'Order cancelled',
-      order,
-    });
+    res.status(200).json({ success: true, msg: 'Order cancelled', order });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to cancel order',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'cancelOrder failed');
+    res.status(500).json({ success: false, msg: 'Failed to cancel order' });
   }
 };
 
@@ -798,81 +892,66 @@ export const rateOrder = async (req, res) => {
   try {
     const { id } = req.params;
     const { restaurantRating, courierRating } = req.body;
+    const userId = req.user.id;
 
     const order = await FoodOrder.findById(id);
-
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        msg: 'Order not found',
-      });
+      return res.status(404).json({ success: false, msg: 'Order not found' });
+    }
+
+    if (order.customerId.toString() !== userId) {
+      return res.status(403).json({ success: false, msg: 'Not authorized to rate this order' });
     }
 
     if (order.status !== 'delivered') {
-      return res.status(400).json({
-        success: false,
-        msg: 'Can only rate delivered orders',
-      });
+      return res.status(400).json({ success: false, msg: 'Can only rate delivered orders' });
     }
 
     if (restaurantRating) {
-      order.ratings.restaurant = {
-        score: restaurantRating.score,
-        comment: restaurantRating.comment,
-        timestamp: new Date(),
-      };
+      order.ratings.restaurant = { score: restaurantRating.score, comment: restaurantRating.comment, timestamp: new Date() };
     }
-
     if (courierRating) {
-      order.ratings.courier = {
-        score: courierRating.score,
-        comment: courierRating.comment,
-        timestamp: new Date(),
-      };
+      order.ratings.courier = { score: courierRating.score, comment: courierRating.comment, timestamp: new Date() };
     }
 
     await order.save();
-
-    res.status(200).json({
-      success: true,
-      msg: 'Rating submitted successfully',
-      order,
-    });
+    res.status(200).json({ success: true, msg: 'Rating submitted successfully', order });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to submit rating',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'rateOrder failed');
+    res.status(500).json({ success: false, msg: 'Failed to submit rating' });
   }
 };
 
 export const getAvailableDeliveries = async (req, res) => {
   try {
-    const orders = await FoodOrder.find({
-      status: 'bidding_open',
-    })
-      .populate('restaurantId', 'name imageUrl location')
-      .sort({ createdAt: -1 });
+    const { page, limit, skip } = parsePagination(req.query);
+    const query = { status: 'courier_searching' };
+    const [orders, total] = await Promise.all([
+      FoodOrder.find(query)
+        .populate('restaurantId', 'name imageUrl location')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      FoodOrder.countDocuments(query),
+    ]);
 
     res.status(200).json({
       success: true,
       count: orders.length,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
       orders,
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to fetch available deliveries',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'getAvailableDeliveries failed');
+    res.status(500).json({ success: false, msg: 'Failed to fetch available deliveries' });
   }
 };
 
 export const getCourierActiveDelivery = async (req, res) => {
   try {
-    const courierId = req.user._id;
-
+    const courierId = req.user.id;
     const order = await FoodOrder.findOne({
       courierId,
       status: { $in: ['courier_assigned', 'picked_up', 'in_transit'] },
@@ -881,24 +960,13 @@ export const getCourierActiveDelivery = async (req, res) => {
       .populate('customerId', 'name phone');
 
     if (!order) {
-      return res.status(200).json({
-        success: true,
-        hasActiveDelivery: false,
-        order: null,
-      });
+      return res.status(200).json({ success: true, hasActiveDelivery: false, order: null });
     }
 
-    res.status(200).json({
-      success: true,
-      hasActiveDelivery: true,
-      order,
-    });
+    res.status(200).json({ success: true, hasActiveDelivery: true, order });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to fetch active delivery',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'getCourierActiveDelivery failed');
+    res.status(500).json({ success: false, msg: 'Failed to fetch active delivery' });
   }
 };
 
@@ -906,13 +974,10 @@ export const getRestaurantOrders = async (req, res) => {
   try {
     const { restaurantId } = req.params;
     const { status, date } = req.query;
+    const { page, limit, skip } = parsePagination(req.query);
 
     const query = { restaurantId };
-
-    if (status) {
-      query.status = status;
-    }
-
+    if (status) query.status = status;
     if (date) {
       const startOfDay = new Date(date);
       startOfDay.setHours(0, 0, 0, 0);
@@ -921,22 +986,27 @@ export const getRestaurantOrders = async (req, res) => {
       query.createdAt = { $gte: startOfDay, $lte: endOfDay };
     }
 
-    const orders = await FoodOrder.find(query)
-      .populate('customerId', 'name phone')
-      .populate('courierId', 'name phone')
-      .sort({ createdAt: -1 });
+    const [orders, total] = await Promise.all([
+      FoodOrder.find(query)
+        .populate('customerId', 'name phone')
+        .populate('courierId', 'name phone')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      FoodOrder.countDocuments(query),
+    ]);
 
     res.status(200).json({
       success: true,
       count: orders.length,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
       orders,
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to fetch restaurant orders',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'getRestaurantOrders failed');
+    res.status(500).json({ success: false, msg: 'Failed to fetch restaurant orders' });
   }
 };
 
@@ -944,25 +1014,26 @@ export const updateCourierLocation = async (req, res) => {
   try {
     const { id } = req.params;
     const { latitude, longitude, heading } = req.body;
+    const courierId = req.user.id;
 
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`order_${id}`).emit('courier:location', {
-        orderId: id,
-        location: { latitude, longitude, heading },
-      });
+    const order = await FoodOrder.findById(id).select('courierId');
+    if (!order) {
+      return res.status(404).json({ success: false, msg: 'Order not found' });
     }
 
-    res.status(200).json({
-      success: true,
-      msg: 'Location updated',
-    });
+    const courierIdStr = courierId != null ? String(courierId) : '';
+    if (!order.courierId || order.courierId.toString() !== courierIdStr) {
+      return res.status(403).json({ success: false, msg: 'Not authorized to update location for this order' });
+    }
+
+    const io = req.io;
+    if (io) {
+      io.to(`order_${id}`).emit('courier:location', { orderId: id, location: { latitude, longitude, heading } });
+    }
+
+    res.status(200).json({ success: true, msg: 'Location updated' });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      msg: 'Failed to update location',
-      error: error.message,
-    });
+    logger.error({ err: error }, 'updateCourierLocation failed');
+    res.status(500).json({ success: false, msg: 'Failed to update location' });
   }
 };
-

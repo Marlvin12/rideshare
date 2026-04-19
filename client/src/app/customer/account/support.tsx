@@ -2,10 +2,11 @@ import {
   View,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   Linking,
 } from "react-native";
+import { showFeatureUnavailable } from "@/utils/featureUnavailable";
+import { SafeAreaView } from "react-native-safe-area-context";
 import React from "react";
 import { StatusBar } from "expo-status-bar";
 import { router } from "expo-router";
@@ -18,11 +19,11 @@ const CARD_BG = "#1C1C1E";
 const TEXT_PRIMARY = "#FFFFFF";
 const TEXT_SECONDARY = "#8E8E93";
 const DIVIDER = "#2C2C2E";
-const ACCENT = "#10B981";
+const ACCENT = "#ac1d17";
 
 const SupportScreen = () => {
   const handleEmailSupport = () => {
-    Linking.openURL("mailto:support@rideapp.com");
+    Linking.openURL("mailto:support@xigoa.com");
   };
 
   const handleCallSupport = () => {
@@ -114,15 +115,55 @@ const SupportScreen = () => {
             </CustomText>
             
             <View style={styles.sectionContent}>
-              <MenuItem iconName="car" title="Trip Issues" onPress={() => {}} />
+              <MenuItem
+                iconName="car"
+                title="Trip Issues"
+                onPress={() =>
+                  showFeatureUnavailable(
+                    "Trip issues",
+                    "Help articles for trips are not available yet. Use email or phone below."
+                  )
+                }
+              />
               <View style={styles.divider} />
-              <MenuItem iconName="card" title="Payment & Pricing" onPress={() => {}} />
+              <MenuItem
+                iconName="card"
+                title="Payment & Pricing"
+                onPress={() =>
+                  showFeatureUnavailable(
+                    "Payment & pricing",
+                    "Billing help is not available in-app yet. Contact support below."
+                  )
+                }
+              />
               <View style={styles.divider} />
-              <MenuItem iconName="person" title="Account & Profile" onPress={() => {}} />
+              <MenuItem
+                iconName="person"
+                title="Account & Profile"
+                onPress={() =>
+                  showFeatureUnavailable(
+                    "Account",
+                    "Account help articles are not available yet."
+                  )
+                }
+              />
               <View style={styles.divider} />
-              <MenuItem iconName="shield" title="Safety Concerns" onPress={() => {}} />
+              <MenuItem
+                iconName="shield"
+                title="Safety Concerns"
+                onPress={() => router.push("/customer/account/safety")}
+              />
               <View style={styles.divider} />
-              <MenuItem iconName="bag" title="Lost Items" onPress={() => {}} />
+              <MenuItem
+                iconName="bag"
+                title="Lost Items"
+                onPress={() =>
+                  showFeatureUnavailable(
+                    "Lost items",
+                    "Lost item reporting is not available yet. Contact support."
+                  )
+                }
+              />
             </View>
           </View>
 
@@ -137,13 +178,13 @@ const SupportScreen = () => {
                 iconBg="#1E3A5F"
                 iconColor="#60A5FA"
                 title="Email Support"
-                subtitle="support@rideapp.com"
+                subtitle="support@xigoa.com"
                 onPress={handleEmailSupport}
               />
               <View style={styles.divider} />
               <ContactItem
                 iconName="call"
-                iconBg="#052E16"
+                iconBg="#3d1513"
                 iconColor={ACCENT}
                 title="Phone Support"
                 subtitle="+263 77 123 4567"
@@ -156,7 +197,12 @@ const SupportScreen = () => {
                 iconColor="#F472B6"
                 title="Live Chat"
                 subtitle="Available 8AM - 10PM"
-                onPress={() => {}}
+                onPress={() =>
+                  showFeatureUnavailable(
+                    "Live chat",
+                    "Live chat is not available yet. Use email or phone."
+                  )
+                }
               />
             </View>
           </View>
@@ -167,9 +213,27 @@ const SupportScreen = () => {
             </CustomText>
             
             <View style={styles.sectionContent}>
-              <MenuItem iconName="document-text" title="Terms of Service" onPress={() => {}} />
+              <MenuItem
+                iconName="document-text"
+                title="Terms of Service"
+                onPress={() =>
+                  showFeatureUnavailable(
+                    "Terms of Service",
+                    "Legal documents are not published in-app yet."
+                  )
+                }
+              />
               <View style={styles.divider} />
-              <MenuItem iconName="lock-closed" title="Privacy Policy" onPress={() => {}} />
+              <MenuItem
+                iconName="lock-closed"
+                title="Privacy Policy"
+                onPress={() =>
+                  showFeatureUnavailable(
+                    "Privacy Policy",
+                    "Legal documents are not published in-app yet."
+                  )
+                }
+              />
             </View>
           </View>
         </ScrollView>

@@ -71,6 +71,18 @@ const foodOrderSchema = new Schema(
         type: Number,
         required: true,
       },
+      restaurantShare: {
+        type: Number,
+        default: 0,
+      },
+      platformShare: {
+        type: Number,
+        default: 0,
+      },
+      courierShare: {
+        type: Number,
+        default: 0,
+      },
     },
     deliveryAddress: {
       address: { type: String, required: true },
@@ -86,6 +98,11 @@ const foodOrderSchema = new Schema(
     deliveryDistance: {
       type: Number,
     },
+    suggestedDeliveryFee: {
+      min: { type: Number },
+      max: { type: Number },
+      estimate: { type: Number },
+    },
     status: {
       type: String,
       enum: [
@@ -93,8 +110,9 @@ const foodOrderSchema = new Schema(
         'restaurant_accepted',
         'preparing',
         'ready_for_pickup',
-        'bidding_open',
+        'courier_searching',
         'courier_assigned',
+        'courier_unavailable',
         'picked_up',
         'in_transit',
         'delivered',
@@ -170,6 +188,14 @@ const foodOrderSchema = new Schema(
     estimatedPreparationTime: {
       type: Number,
     },
+    readyForPickupAt: {
+      type: Date,
+      default: null,
+    },
+    delayUsed: {
+      type: Boolean,
+      default: false,
+    },
     estimatedDeliveryTime: {
       type: Date,
     },
@@ -199,6 +225,14 @@ const foodOrderSchema = new Schema(
     deliveryProofImage: {
       type: String,
     },
+    unavailableItemPreference: {
+      type: String,
+      enum: ['merchant_recommend', 'refund', 'contact_me', 'cancel_order'],
+    },
+    idempotencyKey: {
+      type: String,
+      index: true,
+    },
   },
   { timestamps: true }
 );
@@ -207,7 +241,6 @@ foodOrderSchema.index({ customerId: 1, createdAt: -1 });
 foodOrderSchema.index({ restaurantId: 1, status: 1 });
 foodOrderSchema.index({ courierId: 1, status: 1 });
 foodOrderSchema.index({ status: 1 });
-foodOrderSchema.index({ orderNumber: 1 });
 
 foodOrderSchema.pre('save', function(next) {
   if (this.isNew) {

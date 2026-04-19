@@ -1,6 +1,7 @@
 import { io } from 'socket.io-client';
 import { WS_URL } from '../config';
 import { useDataStore } from '../store/dataStore';
+import { useAuthStore } from '../store/authStore';
 
 class WebSocketService {
   constructor() {
@@ -37,7 +38,8 @@ class WebSocketService {
   }
 
   subscribeToAdminEvents() {
-    this.socket.emit('subscribeAdmin', { adminId: 'admin' });
+    const adminId = useAuthStore.getState().admin?.id ?? '';
+    this.socket.emit('subscribeAdmin', { adminId });
 
     this.socket.on('newRide', (ride) => {
       console.log('New ride created:', ride);

@@ -1,7 +1,10 @@
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 
 const { Schema } = mongoose;
+
+const BCRYPT_ROUNDS = 12;
 
 const adminSchema = new Schema(
   {
@@ -34,6 +37,18 @@ const adminSchema = new Schema(
   }
 );
 
+adminSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) return next();
+  const isPlaintext = !this.password.startsWith('$2');
+  if (!isPlaintext) return next();
+  this.password = await bcrypt.hash(this.password, BCRYPT_ROUNDS);
+  next();
+});
+
+adminSchema.methods.comparePassword = async function (candidate) {
+  return bcrypt.compare(candidate, this.password);
+};
+
 adminSchema.methods.createAccessToken = function () {
   return jwt.sign(
     {
@@ -48,4 +63,3 @@ adminSchema.methods.createAccessToken = function () {
 
 const Admin = mongoose.model('Admin', adminSchema);
 export default Admin;
-

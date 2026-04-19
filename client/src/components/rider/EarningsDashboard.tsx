@@ -5,6 +5,7 @@ import { commonStyles } from "@/styles/commonStyles";
 import { Colors } from "@/utils/Constants";
 import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import { useRiderStore } from "@/store/riderStore";
+import { formatCurrency } from "@/utils/currency";
 
 interface EarningsDashboardProps {
   onClose: () => void;
@@ -107,7 +108,7 @@ const EarningsDashboard: FC<EarningsDashboardProps> = ({ onClose }) => {
             <StatCard
               icon="cash"
               label="Total Earned"
-              value={`$${currentEarnings.total.toFixed(2)}`}
+              value={formatCurrency(currentEarnings.total)}
               color="#4CAF50"
             />
             <StatCard
@@ -125,7 +126,7 @@ const EarningsDashboard: FC<EarningsDashboardProps> = ({ onClose }) => {
             <StatCard
               icon="trending-up"
               label="Avg Per Ride"
-              value={`$${currentEarnings.avgPerRide.toFixed(2)}`}
+              value={formatCurrency(currentEarnings.avgPerRide)}
               color="#9C27B0"
             />
           </View>
@@ -134,7 +135,7 @@ const EarningsDashboard: FC<EarningsDashboardProps> = ({ onClose }) => {
             <View style={commonStyles.flexRow}>
               <MaterialCommunityIcons name="information" size={20} color="#856404" />
               <CustomText fontSize={12} style={{ color: "#856404", marginLeft: 8, flex: 1 }}>
-                Complete 10 more rides this week to unlock a $50 bonus!
+                Complete 10 more rides this week to unlock a bonus!
               </CustomText>
             </View>
           </View>

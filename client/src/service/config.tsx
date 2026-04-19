@@ -1,8 +1,26 @@
 import { Platform } from "react-native";
 
-// Use your computer's IP address for physical devices/Expo Go
-// Change to 'localhost' if running on iOS Simulator
-export const BASE_URL = 'http://10.0.0.136:3000';
+const DEFAULT_PORT = 3000;
+const devFallback =
+  typeof __DEV__ !== "undefined" && __DEV__
+    ? Platform.OS === "android"
+      ? `http://10.0.2.2:${DEFAULT_PORT}`
+      : `http://localhost:${DEFAULT_PORT}`
+    : "";
 
-export const SOCKET_URL = 'ws://10.0.0.136:3000';
-    
+let BASE_URL =
+  (process.env.EXPO_PUBLIC_API_URL?.trim()) || devFallback;
+if (
+  Platform.OS === "android" &&
+  BASE_URL &&
+  (BASE_URL.includes("localhost") || BASE_URL.includes("127.0.0.1"))
+) {
+  BASE_URL = BASE_URL
+    .replace(/localhost/g, "10.0.2.2")
+    .replace(/127\.0\.0\.1/g, "10.0.2.2");
+}
+const SOCKET_URL =
+  process.env.EXPO_PUBLIC_WS_URL ??
+  (BASE_URL ? BASE_URL.replace(/^http/, "ws") : "");
+
+export { BASE_URL, SOCKET_URL };

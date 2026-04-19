@@ -4,10 +4,10 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   Alert,
   Linking,
 } from 'react-native';
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from 'expo-status-bar';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +15,7 @@ import { RFValue } from 'react-native-responsive-fontsize';
 import * as Location from 'expo-location';
 import CustomText from '@/components/shared/CustomText';
 import { Colors, screenWidth } from '@/utils/Constants';
+import { formatCurrency } from '@/utils/currency';
 import {
   getFoodOrderById,
   markPickedUp,
@@ -23,6 +24,7 @@ import {
   updateCourierLocation,
 } from '@/service/foodOrderService';
 import { useWS } from '@/service/WSProvider';
+import { snapPointsToRoad } from '@/utils/mapUtils';
 
 type DeliveryPhase = 'pickup' | 'delivery';
 
@@ -34,6 +36,8 @@ const FoodDeliveryScreen = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [phase, setPhase] = useState<DeliveryPhase>('pickup');
   const [isUpdating, setIsUpdating] = useState(false);
+  const rawGpsBuffer = React.useRef<{ latitude: number; longitude: number; heading?: number }[]>([]);
+  const SNAP_BATCH_SIZE = 3;
 
   const fetchOrder = useCallback(async () => {
     if (!orderId) return;
@@ -70,11 +74,29 @@ const FoodDeliveryScreen = () => {
             timeInterval: 5000,
             distanceInterval: 20,
           },
-          (location) => {
-            const { latitude, longitude, heading } = location.coords;
-            
-            if (orderId) {
-              updateCourierLocation(orderId, latitude, longitude, heading || undefined);
+          async (loc) => {
+            const { latitude, longitude, heading } = loc.coords;
+            rawGpsBuffer.current.push({ latitude, longitude, heading: heading ?? undefined });
+
+            if (rawGpsBuffer.current.length >= SNAP_BATCH_SIZE) {
+              const batch = rawGpsBuffer.current.splice(0, SNAP_BATCH_SIZE);
+              const snapped = await snapPointsToRoad(batch);
+              const last = snapped.length > 0
+                ? snapped[snapped.length - 1]
+                : batch[batch.length - 1];
+
+              if (orderId && last?.latitude && last?.longitude) {
+                updateCourierLocation(
+                  orderId,
+                  last.latitude,
+                  last.longitude,
+                  heading ?? undefined
+                );
+              }
+            } else {
+              if (orderId) {
+                updateCourierLocation(orderId, latitude, longitude, heading ?? undefined);
+              }
             }
           }
         );
@@ -122,7 +144,7 @@ const FoodDeliveryScreen = () => {
             if (result.success) {
               Alert.alert(
                 'Delivery Complete!',
-                `You earned $${result.courierEarnings?.toFixed(2) || '0.00'} on this delivery.`,
+                `You earned ${formatCurrency(result.courierEarnings ?? 0)} on this delivery.`,
                 [
                   {
                     text: 'OK',
@@ -441,7 +463,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingVertical: 12,
     borderRadius: 10,
-    backgroundColor: '#F0FDF4',
+    backgroundColor: '#FDF2F2',
     gap: 8,
   },
   callText: {

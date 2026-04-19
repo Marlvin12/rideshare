@@ -2,25 +2,30 @@ import {
   View,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   Alert,
 } from "react-native";
-import React from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
+import React, { useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { RFValue } from "react-native-responsive-fontsize";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CustomText from "@/components/shared/CustomText";
 import { useUserStore } from "@/store/userStore";
 import { logout } from "@/service/authService";
 import { useWS } from "@/service/WSProvider";
 import { useThemeStore } from "@/store/themeStore";
+import RideHistoryModal from "@/components/shared/RideHistoryModal";
+import { showFeatureUnavailable } from "@/utils/featureUnavailable";
 
 const AccountScreen = () => {
   const { user } = useUserStore();
   const { disconnect } = useWS();
   const { colors } = useThemeStore();
+  const insets = useSafeAreaInsets();
+  const [showRideHistory, setShowRideHistory] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
@@ -190,7 +195,11 @@ const AccountScreen = () => {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          <TouchableOpacity style={dynamicStyles.profileSection} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={dynamicStyles.profileSection}
+            activeOpacity={0.8}
+            onPress={() => router.push("/customer/account/profile")}
+          >
             <View style={dynamicStyles.avatar}>
               <Ionicons name="person" size={RFValue(28)} color={colors.textSecondary} />
             </View>
@@ -213,7 +222,10 @@ const AccountScreen = () => {
           </TouchableOpacity>
 
           <View style={styles.quickActions}>
-            <TouchableOpacity style={dynamicStyles.quickAction}>
+            <TouchableOpacity
+              style={dynamicStyles.quickAction}
+              onPress={() => router.push("/customer/account/support")}
+            >
               <View style={styles.quickActionIcon}>
                 <Ionicons name="help-circle" size={RFValue(24)} color={colors.text} />
               </View>
@@ -222,7 +234,12 @@ const AccountScreen = () => {
               </CustomText>
             </TouchableOpacity>
 
-            <TouchableOpacity style={dynamicStyles.quickAction}>
+            <TouchableOpacity
+              style={dynamicStyles.quickAction}
+              onPress={() =>
+                showFeatureUnavailable("Wallet", "Wallet and in-app payments are not available yet.")
+              }
+            >
               <View style={styles.quickActionIcon}>
                 <Ionicons name="wallet" size={RFValue(24)} color={colors.text} />
               </View>
@@ -231,7 +248,10 @@ const AccountScreen = () => {
               </CustomText>
             </TouchableOpacity>
 
-            <TouchableOpacity style={dynamicStyles.quickAction}>
+            <TouchableOpacity
+              style={dynamicStyles.quickAction}
+              onPress={() => setShowRideHistory(true)}
+            >
               <View style={styles.quickActionIcon}>
                 <Ionicons name="car" size={RFValue(24)} color={colors.text} />
               </View>
@@ -251,7 +271,7 @@ const AccountScreen = () => {
               iconName="people"
               title="Manage Account"
               subtitle="Info, security"
-              onPress={() => router.push("/customer/account/settings")}
+              onPress={() => router.push("/customer/account/profile")}
               showBadge
             />
           </View>
@@ -266,12 +286,14 @@ const AccountScreen = () => {
             <MenuItem
               iconName="gift"
               title="Send a gift"
-              onPress={() => {}}
+              onPress={() =>
+                showFeatureUnavailable("Send a gift", "Gifting from account is not available yet.")
+              }
             />
             <MenuItem
               iconName="megaphone"
               title="Promotions"
-              onPress={() => {}}
+              onPress={() => router.push("/customer/account/promotions")}
             />
           </View>
 
@@ -279,12 +301,12 @@ const AccountScreen = () => {
             <MenuItem
               iconName="briefcase"
               title="Set up your business profile"
-              onPress={() => {}}
+              onPress={() => router.push("/customer/account/business-profile")}
             />
             <MenuItem
               iconName="car-sport"
-              title="Drive or deliver with RIDE"
-              onPress={() => {}}
+              title="Drive or deliver with Loko"
+              onPress={() => router.push("/customer/account/drive")}
             />
           </View>
 
@@ -297,7 +319,7 @@ const AccountScreen = () => {
             <MenuItem
               iconName="chatbubble"
               title="Messages"
-              onPress={() => {}}
+              onPress={() => router.push("/customer/account/messages")}
             />
           </View>
 
@@ -305,7 +327,7 @@ const AccountScreen = () => {
             <MenuItem
               iconName="information-circle"
               title="Legal"
-              onPress={() => router.push("/customer/account/support")}
+              onPress={() => router.push("/customer/account/legal")}
             />
           </View>
 
@@ -325,7 +347,7 @@ const AccountScreen = () => {
           </View>
         </ScrollView>
 
-        <View style={dynamicStyles.bottomNav}>
+        <View style={[dynamicStyles.bottomNav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
           <TouchableOpacity style={styles.navItem} onPress={() => router.push("/customer/home")}>
             <Ionicons name="home-outline" size={RFValue(22)} color={colors.textSecondary} />
             <CustomText fontFamily="Regular" fontSize={10} style={dynamicStyles.navText}>
@@ -340,7 +362,7 @@ const AccountScreen = () => {
             </CustomText>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.navItem} onPress={() => router.push("/customer/home")}>
+          <TouchableOpacity style={styles.navItem} onPress={() => setShowRideHistory(true)}>
             <Ionicons name="receipt-outline" size={RFValue(22)} color={colors.textSecondary} />
             <CustomText fontFamily="Regular" fontSize={10} style={dynamicStyles.navText}>
               Activity
@@ -358,6 +380,12 @@ const AccountScreen = () => {
           </TouchableOpacity>
         </View>
       </SafeAreaView>
+
+      <RideHistoryModal
+        visible={showRideHistory}
+        onClose={() => setShowRideHistory(false)}
+        userRole="customer"
+      />
     </View>
   );
 };

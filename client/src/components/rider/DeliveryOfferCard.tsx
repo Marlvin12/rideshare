@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
   orderBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0FDF4',
+    backgroundColor: '#FDF2F2',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 16,

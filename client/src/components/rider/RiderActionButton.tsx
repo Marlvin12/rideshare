@@ -8,6 +8,7 @@ import { commonStyles } from "@/styles/commonStyles";
 import CustomText from "../shared/CustomText";
 import { orderStyles } from "@/styles/riderStyles";
 import { RFValue } from "react-native-responsive-fontsize";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const RiderActionButton: FC<{
   ride: any;
@@ -15,6 +16,7 @@ const RiderActionButton: FC<{
   title: string;
   onPress: () => void;
 }> = ({ ride, color = Colors.iosColor, title, onPress }) => {
+  const insets = useSafeAreaInsets();
   const CheckoutButton = () => (
     <Ionicons
       name="arrow-forward-sharp"
@@ -25,7 +27,12 @@ const RiderActionButton: FC<{
   );
 
   return (
-    <View style={rideStyles?.swipeableContaninerRider}>
+    <View
+      style={[
+        rideStyles?.swipeableContainerRider,
+        { paddingBottom: Math.max(insets.bottom + 10, 22) },
+      ]}
+    >
       <View style={commonStyles?.flexRowBetween}>
         <CustomText
           fontSize={11}
@@ -41,11 +48,7 @@ const RiderActionButton: FC<{
           numberOfLines={1}
           fontFamily="Medium"
         >
-          +91{" "}
-          {ride?.customer?.phone &&
-            ride?.customer?.phone?.slice(0, 5) +
-              " " +
-              ride?.customer?.phone?.slice(5)}
+          {ride?.customer?.phone || ""}
         </CustomText>
       </View>
 

@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, Image } from "react-native";
+import { View, TouchableOpacity, Image, Linking, Platform, Alert } from "react-native";
 import React, { FC, memo, useEffect, useRef, useState } from "react";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { customMapStyle, defaultInitialRegion } from "@/utils/CustomMap";
@@ -6,15 +6,45 @@ import CustomText from "../shared/CustomText";
 import { FontAwesome6, MaterialCommunityIcons } from "@expo/vector-icons";
 import { RFValue } from "react-native-responsive-fontsize";
 import { mapStyles } from "@/styles/mapStyles";
-import MapViewDirections from "react-native-maps-directions";
-import { getPoints } from "@/utils/mapUtils";
+import { getPoints, getRouteInfo } from "@/utils/mapUtils";
 
-const apikey = process.env.EXPO_PUBLIC_MAP_API_KEY || "";
-
-const Colors = {
+const COLORS = {
   iosColor: "#007AFF",
-  text: "#000000"
+  text: "#000000",
 };
+
+interface LatLng {
+  latitude: number;
+  longitude: number;
+}
+
+function decodePolyline(encoded: string): LatLng[] {
+  const points: LatLng[] = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  while (index < encoded.length) {
+    let b: number;
+    let shift = 0;
+    let result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return points;
+}
 
 const RiderLiveTracking: FC<{
   drop: any;
@@ -24,55 +54,35 @@ const RiderLiveTracking: FC<{
 }> = ({ drop, status, pickup, rider }) => {
   const mapRef = useRef<MapView>(null);
   const [isUserInteracting, setIsUserInteracting] = useState(false);
+  const [routePolyline, setRoutePolyline] = useState<LatLng[]>([]);
 
-  const fitToMarkers = async () => {
+  const routeOrigin = status === "START" ? pickup : rider;
+  const routeDestination = status === "START" ? rider : drop;
+
+  const fitToMarkers = () => {
     if (isUserInteracting) return;
-
-    const coordinates = [];
-
-    if (pickup?.latitude && pickup?.longitude && status === "START") {
-      coordinates.push({
-        latitude: pickup.latitude,
-        longitude: pickup.longitude,
-      });
+    const coordinates: LatLng[] = [];
+    if (pickup?.latitude && status === "START") {
+      coordinates.push({ latitude: pickup.latitude, longitude: pickup.longitude });
     }
-
-    if (drop?.latitude && drop?.longitude && status === "ARRIVED") {
+    if (drop?.latitude && status === "ARRIVED") {
       coordinates.push({ latitude: drop.latitude, longitude: drop.longitude });
     }
-
-    if (rider?.latitude && rider?.longitude) {
-      coordinates.push({
-        latitude: rider.latitude,
-        longitude: rider.longitude,
-      });
+    if (rider?.latitude) {
+      coordinates.push({ latitude: rider.latitude, longitude: rider.longitude });
     }
-
     if (coordinates.length === 0) return;
-
-    try {
-      mapRef.current?.fitToCoordinates(coordinates, {
-        edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
-        animated: true,
-      });
-    } catch (error) {
-      console.error("Error fitting to markers:", error);
-    }
-  };
-
-  const fitToMarkersWithDelay = () => {
-    setTimeout(() => {
-      fitToMarkers();
-    }, 500);
+    mapRef.current?.fitToCoordinates(coordinates, {
+      edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+      animated: true,
+    });
   };
 
   const calculateInitialRegion = () => {
     if (pickup?.latitude && drop?.latitude) {
-      const latitude = (pickup.latitude + drop.latitude) / 2;
-      const longitude = (pickup.longitude + drop.longitude) / 2;
       return {
-        latitude,
-        longitude,
+        latitude: (pickup.latitude + drop.latitude) / 2,
+        longitude: (pickup.longitude + drop.longitude) / 2,
         latitudeDelta: 0.05,
         longitudeDelta: 0.05,
       };
@@ -81,8 +91,56 @@ const RiderLiveTracking: FC<{
   };
 
   useEffect(() => {
+    if (!routeOrigin?.latitude || !routeDestination?.latitude) return;
+    let cancelled = false;
+    (async () => {
+      const route = await getRouteInfo(
+        { latitude: routeOrigin.latitude, longitude: routeOrigin.longitude },
+        { latitude: routeDestination.latitude, longitude: routeDestination.longitude },
+        "DRIVE"
+      );
+      if (cancelled) return;
+      setRoutePolyline(
+        route?.encodedPolyline ? decodePolyline(route.encodedPolyline) : []
+      );
+      setTimeout(fitToMarkers, 500);
+    })();
+    return () => { cancelled = true; };
+  }, [rider?.latitude, rider?.longitude, status]);
+
+  useEffect(() => {
     if (pickup?.latitude && drop?.latitude) fitToMarkers();
-  }, [drop?.latitude, pickup?.latitude, rider.latitude]);
+  }, [drop?.latitude, pickup?.latitude, rider?.latitude]);
+
+  const openExternalNavigation = () => {
+    const dest =
+      status === "ARRIVED" && drop?.latitude != null
+        ? { latitude: drop.latitude, longitude: drop.longitude }
+        : pickup?.latitude != null
+          ? { latitude: pickup.latitude, longitude: pickup.longitude }
+          : rider?.latitude != null
+            ? { latitude: rider.latitude, longitude: rider.longitude }
+            : null;
+
+    if (!dest) {
+      Alert.alert("Navigation", "Location is not available yet.");
+      return;
+    }
+    const { latitude, longitude } = dest;
+    const url =
+      Platform.OS === "ios"
+        ? `http://maps.apple.com/?daddr=${latitude},${longitude}&dirflg=d`
+        : `google.navigation:q=${latitude},${longitude}`;
+    Linking.canOpenURL(url)
+      .then((supported) =>
+        supported
+          ? Linking.openURL(url)
+          : Linking.openURL(
+              `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`
+            )
+      )
+      .catch(() => Alert.alert("Navigation", "Could not open maps app."));
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -96,25 +154,29 @@ const RiderLiveTracking: FC<{
         showsCompass={false}
         showsIndoors={false}
         customMapStyle={customMapStyle}
-        showsUserLocation={true}
+        showsUserLocation
         onRegionChange={() => setIsUserInteracting(true)}
         onRegionChangeComplete={() => setIsUserInteracting(false)}
       >
-        {rider?.latitude && pickup?.latitude && (
-          <MapViewDirections
-            origin={status === "START" ? pickup : rider}
-            destination={status === "START" ? rider : drop}
-            onReady={fitToMarkersWithDelay}
-            apikey={apikey}
-            strokeColor={Colors.iosColor}
-            strokeColors={[Colors.iosColor]}
+        {routePolyline.length >= 2 ? (
+          <Polyline
+            coordinates={routePolyline}
+            strokeColor="#1a73e8"
             strokeWidth={5}
-            precision="low"
-            onError={(error) => console.log("Directions error:", error)}
           />
-        )}
+        ) : null}
 
-        {drop?.latitude && (
+        {drop && pickup ? (
+          <Polyline
+            coordinates={getPoints([drop, pickup])}
+            strokeColor="#93c5fd"
+            strokeWidth={2}
+            geodesic
+            lineDashPattern={[12, 10]}
+          />
+        ) : null}
+
+        {drop?.latitude ? (
           <Marker
             coordinate={{ latitude: drop.latitude, longitude: drop.longitude }}
             anchor={{ x: 0.5, y: 1 }}
@@ -125,14 +187,11 @@ const RiderLiveTracking: FC<{
               style={{ height: 30, width: 30, resizeMode: "contain" }}
             />
           </Marker>
-        )}
+        ) : null}
 
-        {pickup?.latitude && (
+        {pickup?.latitude ? (
           <Marker
-            coordinate={{
-              latitude: pickup.latitude,
-              longitude: pickup.longitude,
-            }}
+            coordinate={{ latitude: pickup.latitude, longitude: pickup.longitude }}
             anchor={{ x: 0.5, y: 1 }}
             zIndex={2}
           >
@@ -141,38 +200,25 @@ const RiderLiveTracking: FC<{
               style={{ height: 30, width: 30, resizeMode: "contain" }}
             />
           </Marker>
-        )}
+        ) : null}
 
-        {rider?.latitude && (
+        {rider?.latitude ? (
           <Marker
-            coordinate={{
-              latitude: rider.latitude,
-              longitude: rider.longitude,
-            }}
+            coordinate={{ latitude: rider.latitude, longitude: rider.longitude }}
             anchor={{ x: 0.5, y: 1 }}
             zIndex={3}
           >
-            <View style={{ transform: [{ rotate: `${rider?.heading}deg` }] }}>
+            <View style={{ transform: [{ rotate: `${rider?.heading ?? 0}deg` }] }}>
               <Image
                 source={require("@/assets/icons/cab_marker.png")}
                 style={{ height: 40, width: 40, resizeMode: "contain" }}
               />
             </View>
           </Marker>
-        )}
-
-        {drop && pickup && (
-          <Polyline
-            coordinates={getPoints([drop, pickup])}
-            strokeColor={Colors.text}
-            strokeWidth={2}
-            geodesic={true}
-            lineDashPattern={[12, 10]}
-          />
-        )}
+        ) : null}
       </MapView>
 
-      <TouchableOpacity style={mapStyles.gpsLiveButton} onPress={() => {}}>
+      <TouchableOpacity style={mapStyles.gpsLiveButton} onPress={openExternalNavigation}>
         <CustomText fontFamily="SemiBold" fontSize={10}>
           Open Live GPS
         </CustomText>

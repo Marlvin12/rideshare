@@ -84,7 +84,7 @@ export const orderStyles = StyleSheet.create({
     pickupHollowCircle: {
         borderWidth: 2,
         top: 1,
-        borderColor: "#158A58",
+        borderColor: "#ac1d17",
         padding: 3,
         borderRadius: 100
     },

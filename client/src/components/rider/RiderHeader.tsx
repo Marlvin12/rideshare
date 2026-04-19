@@ -2,12 +2,12 @@ import {
   View,
   Text,
   Alert,
-  SafeAreaView,
   TouchableOpacity,
   Image,
   ActivityIndicator,
   Modal,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import React, { useEffect, useState } from "react";
 import { useWS } from "@/service/WSProvider";
 import { useRiderStore } from "@/store/riderStore";

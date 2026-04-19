@@ -4,9 +4,9 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +18,7 @@ import { Colors } from '@/utils/Constants';
 import { useCartStore } from '@/store/cartStore';
 import { useUserStore } from '@/store/userStore';
 import { createFoodOrder } from '@/service/foodOrderService';
+import { formatCurrency } from '@/utils/currency';
 
 const CartScreen = () => {
   const {
@@ -51,7 +52,7 @@ const CartScreen = () => {
     if (!isMinimumOrderMet()) {
       Alert.alert(
         'Minimum Order',
-        `The minimum order for ${restaurant.name} is $${restaurant.minimumOrder.toFixed(2)}`
+        `The minimum order for ${restaurant.name} is ${formatCurrency(restaurant.minimumOrder)}`
       );
       return;
     }
@@ -82,7 +83,7 @@ const CartScreen = () => {
 
     if (result.success) {
       clearCart();
-      router.replace(`/customer/eats/bidding?orderId=${result.order._id}`);
+      router.replace(`/customer/eats/tracking/${result.order._id}`);
     } else {
       Alert.alert('Error', result.error || 'Failed to place order');
     }
@@ -187,7 +188,7 @@ const CartScreen = () => {
                 Subtotal
               </CustomText>
               <CustomText fontFamily="Medium" fontSize={14}>
-                ${getSubtotal().toFixed(2)}
+                {formatCurrency(getSubtotal())}
               </CustomText>
             </View>
             
@@ -196,7 +197,7 @@ const CartScreen = () => {
                 Delivery Fee
               </CustomText>
               <CustomText fontFamily="Medium" fontSize={14}>
-                ${getDeliveryFee().toFixed(2)}
+                {formatCurrency(getDeliveryFee())}
               </CustomText>
             </View>
             
@@ -205,7 +206,7 @@ const CartScreen = () => {
                 Platform Fee (10%)
               </CustomText>
               <CustomText fontFamily="Medium" fontSize={14}>
-                ${getPlatformFee().toFixed(2)}
+                {formatCurrency(getPlatformFee())}
               </CustomText>
             </View>
             
@@ -216,7 +217,7 @@ const CartScreen = () => {
                 Total
               </CustomText>
               <CustomText fontFamily="Bold" fontSize={18} style={styles.totalAmount}>
-                ${getTotal().toFixed(2)}
+                {formatCurrency(getTotal())}
               </CustomText>
             </View>
           </View>
@@ -225,7 +226,7 @@ const CartScreen = () => {
             <View style={styles.minimumWarning}>
               <Ionicons name="alert-circle" size={RFValue(16)} color={Colors.warning} />
               <CustomText fontFamily="Regular" fontSize={12} style={styles.warningText}>
-                Add ${(restaurant.minimumOrder - getSubtotal()).toFixed(2)} more to meet the minimum order
+                Add {formatCurrency(restaurant.minimumOrder - getSubtotal())} more to meet the minimum order
               </CustomText>
             </View>
           )}
@@ -265,7 +266,7 @@ const CartScreen = () => {
           disabled={!isMinimumOrderMet() || isLoading}
         >
           <CustomText fontFamily="SemiBold" fontSize={16} style={styles.checkoutButtonText}>
-            {isLoading ? 'Placing Order...' : `Place Order - $${getTotal().toFixed(2)}`}
+            {isLoading ? 'Placing Order...' : `Place Order — ${formatCurrency(getTotal())}`}
           </CustomText>
         </TouchableOpacity>
       </View>

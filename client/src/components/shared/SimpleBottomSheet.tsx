@@ -7,7 +7,9 @@ import {
   Animated,
   Dimensions,
   Keyboard,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -22,6 +24,7 @@ interface SimpleBottomSheetProps {
   enableDynamicSizing?: boolean;
   keyboardBehavior?: 'interactive' | 'fillParent' | 'extend';
   keyboardBlurBehavior?: 'none' | 'restore';
+  bottomInset?: number;
 }
 
 export const SimpleBottomSheet = React.forwardRef<any, SimpleBottomSheetProps>(
@@ -35,10 +38,15 @@ export const SimpleBottomSheet = React.forwardRef<any, SimpleBottomSheetProps>(
       onChange,
       keyboardBehavior = 'interactive',
       keyboardBlurBehavior = 'restore',
+      bottomInset,
     },
     ref
   ) => {
-    const animatedValue = useRef(new Animated.Value(snapPoints[initialIndex])).current;
+    const insets = useSafeAreaInsets();
+    const resolvedBottomInset =
+      bottomInset ?? (Platform.OS === "android" ? Math.max(insets.bottom, 20) : insets.bottom);
+    const effectiveSnapPoints = snapPoints.map((point) => point + resolvedBottomInset);
+    const animatedValue = useRef(new Animated.Value(effectiveSnapPoints[initialIndex])).current;
     const currentSnapIndex = useRef(initialIndex);
     const lastGesture = useRef(0);
     const scrollViewRef = useRef<ScrollView>(null);
@@ -47,10 +55,10 @@ export const SimpleBottomSheet = React.forwardRef<any, SimpleBottomSheetProps>(
 
     const snapTo = useCallback(
       (index: number) => {
-        if (index < 0 || index >= snapPoints.length) return;
+        if (index < 0 || index >= effectiveSnapPoints.length) return;
         
         currentSnapIndex.current = index;
-        const snapPoint = snapPoints[index];
+        const snapPoint = effectiveSnapPoints[index];
         
         if (keyboardBlurBehavior === 'restore') {
           Keyboard.dismiss();
@@ -66,7 +74,7 @@ export const SimpleBottomSheet = React.forwardRef<any, SimpleBottomSheetProps>(
           onChange?.(index);
         });
       },
-      [animatedValue, snapPoints, onChange, keyboardBlurBehavior]
+      [animatedValue, effectiveSnapPoints, onChange, keyboardBlurBehavior]
     );
 
     const panResponder = useRef(
@@ -85,7 +93,7 @@ export const SimpleBottomSheet = React.forwardRef<any, SimpleBottomSheetProps>(
             return true;
           }
           
-          if (isDraggingUp && currentSnapIndex.current < snapPoints.length - 1) {
+          if (isDraggingUp && currentSnapIndex.current < effectiveSnapPoints.length - 1) {
             return true;
           }
           
@@ -99,8 +107,8 @@ export const SimpleBottomSheet = React.forwardRef<any, SimpleBottomSheetProps>(
         onPanResponderMove: (_, gestureState) => {
           const newHeight = lastGesture.current - gestureState.dy;
           
-          const minHeight = Math.min(...snapPoints);
-          const maxHeight = Math.max(...snapPoints);
+          const minHeight = Math.min(...effectiveSnapPoints);
+          const maxHeight = Math.max(...effectiveSnapPoints);
           const clampedHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
           
           animatedValue.setValue(clampedHeight);
@@ -114,14 +122,14 @@ export const SimpleBottomSheet = React.forwardRef<any, SimpleBottomSheetProps>(
           let targetIndex = currentSnapIndex.current;
           
           if (Math.abs(velocity) > 0.8) {
-            if (velocity > 0 && currentSnapIndex.current < snapPoints.length - 1) {
+            if (velocity > 0 && currentSnapIndex.current < effectiveSnapPoints.length - 1) {
               targetIndex = currentSnapIndex.current + 1;
             } else if (velocity < 0 && currentSnapIndex.current > 0) {
               targetIndex = currentSnapIndex.current - 1;
             }
           } else {
             let minDistance = Infinity;
-            snapPoints.forEach((point, index) => {
+            effectiveSnapPoints.forEach((point, index) => {
               const distance = Math.abs(point - currentHeight);
               if (distance < minDistance) {
                 minDistance = distance;
@@ -151,8 +159,8 @@ export const SimpleBottomSheet = React.forwardRef<any, SimpleBottomSheetProps>(
     }, []);
 
     const translateY = animatedValue.interpolate({
-      inputRange: [Math.min(...snapPoints), Math.max(...snapPoints)],
-      outputRange: [SCREEN_HEIGHT - Math.min(...snapPoints), SCREEN_HEIGHT - Math.max(...snapPoints)],
+      inputRange: [Math.min(...effectiveSnapPoints), Math.max(...effectiveSnapPoints)],
+      outputRange: [SCREEN_HEIGHT - Math.min(...effectiveSnapPoints), SCREEN_HEIGHT - Math.max(...effectiveSnapPoints)],
       extrapolate: 'clamp',
     });
 
@@ -172,7 +180,10 @@ export const SimpleBottomSheet = React.forwardRef<any, SimpleBottomSheetProps>(
         <ScrollView
           ref={scrollViewRef}
           style={styles.content}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: 50 + resolvedBottomInset },
+          ]}
           showsVerticalScrollIndicator={false}
           scrollEnabled={isScrollEnabled.current}
           bounces={true}

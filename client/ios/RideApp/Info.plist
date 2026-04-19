@@ -7,7 +7,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
-    <string>Ride App</string>
+    <string>Xigoa</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -27,14 +27,14 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
-          <string>myapp</string>
+          <string>xigoa</string>
           <string>com.ritik.rideapp</string>
         </array>
       </dict>
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
-          <string>exp+rideapp</string>
+          <string>exp+xigoa</string>
         </array>
       </dict>
     </array>
@@ -53,12 +53,18 @@
       <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your camera</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to use your location.</string>
     <key>NSLocationAlwaysUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your location</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your location</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your photos for ID verification.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

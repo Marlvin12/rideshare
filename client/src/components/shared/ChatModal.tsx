@@ -37,6 +37,58 @@ const QUICK_REPLIES = [
   "Thank you!",
 ];
 
+const FALLBACK_TIME = "00:00";
+
+const parseMessageTimestamp = (value: unknown): Date => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+  const parsed = new Date(value as string | number | Date);
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date();
+  }
+  return parsed;
+};
+
+const formatMessageTime = (timestamp: unknown): string => {
+  const safeDate = parseMessageTimestamp(timestamp);
+  try {
+    return safeDate.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return FALLBACK_TIME;
+  }
+};
+
+const normalizeHistoryMessage = (
+  rawMessage: any,
+  index: number,
+  recipientRole: "rider" | "customer"
+): Message => {
+  const senderRole = rawMessage?.senderRole;
+  const senderId = rawMessage?.senderId ?? rawMessage?.from ?? "unknown";
+  const timestampSource = rawMessage?.timestamp ?? rawMessage?.createdAt ?? Date.now();
+  const timestamp = parseMessageTimestamp(timestampSource);
+  const roleForMe = recipientRole === "rider" ? "customer" : "rider";
+  const isMyMessage =
+    rawMessage?.sender === "me" ||
+    rawMessage?.senderId === "user" ||
+    senderRole === roleForMe;
+  const stableId =
+    rawMessage?.id ??
+    rawMessage?._id ??
+    `${String(senderId)}-${timestamp.getTime()}-${index}`;
+
+  return {
+    id: String(stableId),
+    text: String(rawMessage?.text ?? rawMessage?.message ?? ""),
+    sender: isMyMessage ? "me" : "other",
+    timestamp,
+  };
+};
+
 const ChatModal: FC<ChatModalProps> = ({
   visible,
   onClose,
@@ -54,10 +106,16 @@ const ChatModal: FC<ChatModalProps> = ({
       const handleChatMessage = (data: any) => {
         if (data.rideId === rideId && data.senderId) {
           const isMyMessage = data.senderRole === (recipientRole === "rider" ? "customer" : "rider");
+          const rawTimestamp = data.timestamp ?? data.createdAt ?? Date.now();
+          const safeTimestamp = parseMessageTimestamp(rawTimestamp);
+          const messageId =
+            data.id ??
+            data._id ??
+            `${String(data.senderId)}-${safeTimestamp.getTime()}-${String(data.message ?? "").slice(0, 24)}`;
           
           setMessages((prev) => {
             const exists = prev.some(msg => 
-              msg.id === `${data.senderId}-${data.timestamp}`
+              msg.id === String(messageId)
             );
             
             if (exists) return prev;
@@ -65,10 +123,10 @@ const ChatModal: FC<ChatModalProps> = ({
             return [
               ...prev,
               {
-                id: `${data.senderId}-${data.timestamp}`,
+                id: String(messageId),
                 text: data.message,
                 sender: isMyMessage ? "me" : "other",
-                timestamp: new Date(data.timestamp),
+                timestamp: safeTimestamp,
               },
             ];
           });
@@ -77,7 +135,12 @@ const ChatModal: FC<ChatModalProps> = ({
 
       const handleChatHistory = (data: any) => {
         if (data.rideId === rideId) {
-          setMessages(data.messages || []);
+          const nextMessages = Array.isArray(data.messages)
+            ? data.messages.map((message, index) =>
+                normalizeHistoryMessage(message, index, recipientRole)
+              )
+            : [];
+          setMessages(nextMessages);
         }
       };
 
@@ -143,10 +206,7 @@ const ChatModal: FC<ChatModalProps> = ({
             marginTop: 4,
           }}
         >
-          {item.timestamp.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {formatMessageTime(item.timestamp)}
         </CustomText>
       </View>
     );

@@ -1,11 +1,12 @@
 import {
   View,
   Text,
-  SafeAreaView,
   TouchableOpacity,
   FlatList,
   Image,
+  Alert,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import React, { useEffect, useState } from "react";
 import { useUserStore } from "@/store/userStore";
 import { StatusBar } from "expo-status-bar";
@@ -25,6 +26,7 @@ import {
 import { locationStyles } from "@/styles/locationStyles";
 import LocationItem from "@/components/customer/LocationItem";
 import MapPickerModal from "@/components/customer/MapPickerModal";
+import { ErrorMessages } from "@/utils/errorMessages";
 
 const LocationSelection = () => {
   const { location, setLocation } = useUserStore();
@@ -39,9 +41,11 @@ const LocationSelection = () => {
   const [isMapModalVisible, setMapModalVisible] = useState(false);
 
   const fetchLocation = async (query: string) => {
-    if (query?.length > 4) {
+    if (query?.trim().length >= 2) {
       const data = await getPlacesSuggestions(query);
       setLocations(data);
+    } else {
+      setLocations([]);
     }
   };
 
@@ -72,25 +76,19 @@ const LocationSelection = () => {
     const { latitude: lat2, longitude: lon2 } = dropCoords;
 
     if (lat1 === lat2 && lon1 === lon2) {
-      alert(
-        "Pickup and drop locations cannot be same. Please select different locations."
-      );
+      Alert.alert("Invalid Locations", ErrorMessages.ride.sameLocations);
       return;
     }
 
     const distance = calculateDistance(lat1, lon1, lat2, lon2);
 
-    const minDistance = 0.5; // Minimum distance in km (e.g., 500 meters)
-    const maxDistance = 50; // Maximum distance in km (e.g., 50 km)
+    const MIN_DISTANCE_KM = 0.5;
+    const MAX_DISTANCE_KM = 200;
 
-    if (distance < minDistance) {
-      alert(
-        "The selected locations are too close. Please choose locations that are further apart."
-      );
-    } else if (distance > maxDistance) {
-      alert(
-        "The selected locations are too far apart. Please select a closer drop location."
-      );
+    if (distance < MIN_DISTANCE_KM) {
+      Alert.alert("Too Close", ErrorMessages.ride.tooClose);
+    } else if (distance > MAX_DISTANCE_KM) {
+      Alert.alert("Too Far", ErrorMessages.ride.tooFar);
     } else {
       setLocations([]);
       router.navigate({
@@ -102,8 +100,6 @@ const LocationSelection = () => {
           drop_address: drop,
         },
       });
-
-      console.log(`Distance is valid : ${distance.toFixed(2)} km`);
     }
   };
 
@@ -211,15 +207,27 @@ const LocationSelection = () => {
           visible={isMapModalVisible}
           onClose={() => setMapModalVisible(false)}
           onSelectLocation={(data) => {
-            if (data) {
-              if (modalTitle === "drop") {
-                setDropCoords(data);
-                setDrop(data?.address);
-              } else {
-                setLocation(data);
-                setPickupCoords(data);
-                setPickup(data?.address);
-              }
+            if (!data) return;
+            const lat = data.latitude;
+            const lng = data.longitude;
+            const hasCoords =
+              typeof lat === "number" &&
+              typeof lng === "number" &&
+              Number.isFinite(lat) &&
+              Number.isFinite(lng);
+            if (!hasCoords) return;
+            const resolved = {
+              latitude: lat,
+              longitude: lng,
+              address: data.address ?? "",
+            };
+            if (modalTitle === "drop") {
+              setDropCoords(resolved);
+              setDrop(resolved.address);
+            } else {
+              setLocation(resolved);
+              setPickupCoords(resolved);
+              setPickup(resolved.address);
             }
           }}
         />

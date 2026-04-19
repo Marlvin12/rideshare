@@ -29,11 +29,14 @@ interface UserPreferences {
   };
 }
 
+const MAX_RECENT_LOCATIONS = 5;
+
 interface UserStoreProps {
   user: any;
   location: CustomLocation;
   outOfRange: boolean;
   savedPlaces: SavedPlace[];
+  recentLocations: SavedPlace[];
   preferences: UserPreferences;
   setUser: (data: any) => void;
   setOutOfRange: (data: boolean) => void;
@@ -41,6 +44,7 @@ interface UserStoreProps {
   setSavedPlaces: (places: SavedPlace[]) => void;
   addSavedPlace: (place: SavedPlace) => void;
   removeSavedPlace: (id: string) => void;
+  addRecentLocation: (place: Omit<SavedPlace, 'id'>) => void;
   setPreferences: (prefs: Partial<UserPreferences>) => void;
   clearData: () => void;
 }
@@ -65,6 +69,7 @@ export const useUserStore = create<UserStoreProps>()(
       location: null,
       outOfRange: false,
       savedPlaces: [],
+      recentLocations: [],
       preferences: defaultPreferences,
       setUser: (data) => set({ user: data }),
       setLocation: (data) => set({ location: data }),
@@ -81,6 +86,17 @@ export const useUserStore = create<UserStoreProps>()(
         set((state) => ({
           savedPlaces: state.savedPlaces.filter((p) => p.id !== id),
         })),
+      addRecentLocation: (place) =>
+        set((state) => {
+          const id = `${place.latitude}_${place.longitude}`;
+          const deduplicated = state.recentLocations.filter((r) => r.id !== id);
+          return {
+            recentLocations: [
+              { ...place, id },
+              ...deduplicated,
+            ].slice(0, MAX_RECENT_LOCATIONS),
+          };
+        }),
       setPreferences: (prefs) =>
         set((state) => ({
           preferences: { ...state.preferences, ...prefs },
@@ -91,6 +107,7 @@ export const useUserStore = create<UserStoreProps>()(
           location: null,
           outOfRange: false,
           savedPlaces: [],
+          recentLocations: [],
           preferences: defaultPreferences,
         }),
     }),
@@ -99,6 +116,7 @@ export const useUserStore = create<UserStoreProps>()(
       partialize: (state) => ({
         user: state.user,
         savedPlaces: state.savedPlaces,
+        recentLocations: state.recentLocations,
         preferences: state.preferences,
       }),
       storage: createJSONStorage(() => mmkvStorage),

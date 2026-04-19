@@ -580,6 +580,47 @@ export const mockMenuItems = [
     customizations: [],
   },
 
+  // Galito's Menu (rest_003)
+  {
+    _id: 'menu_007b',
+    restaurantId: 'rest_003',
+    name: 'Flame-Grilled Quarter',
+    description: 'Quarter chicken with your choice of marinade',
+    price: 5.50,
+    category: 'Chicken',
+    imageUrl: 'https://images.unsplash.com/photo-1598103442097-8b74394b95c6?w=300',
+    isAvailable: true,
+    isVegetarian: false,
+    preparationTime: 12,
+    customizations: [],
+  },
+  {
+    _id: 'menu_008b',
+    restaurantId: 'rest_003',
+    name: 'Prego Roll',
+    description: 'Steak roll with Portuguese sauce',
+    price: 6.00,
+    category: 'Rolls',
+    imageUrl: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=300',
+    isAvailable: true,
+    isVegetarian: false,
+    preparationTime: 10,
+    customizations: [],
+  },
+  {
+    _id: 'menu_009b',
+    restaurantId: 'rest_003',
+    name: 'Spicy Rice',
+    description: 'African-style spicy rice',
+    price: 2.50,
+    category: 'Sides',
+    imageUrl: 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=300',
+    isAvailable: true,
+    isVegetarian: true,
+    preparationTime: 5,
+    customizations: [],
+  },
+
   // Debonairs Pizza Menu
   {
     _id: 'menu_010',

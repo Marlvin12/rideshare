@@ -1,0 +1,7 @@
+{
+  "delay": 1500,
+  "signal": "SIGTERM",
+  "ext": "js,mjs,cjs,json,env",
+  "watch": ["."],
+  "ignore": ["tests/", "node_modules/", "*.test.js"]
+}

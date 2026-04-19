@@ -2,7 +2,6 @@ import { View, Text, Alert } from "react-native";
 import React, { useEffect, useState } from "react";
 import { useRiderStore } from "@/store/riderStore";
 import { useWS } from "@/service/WSProvider";
-import { useRoute } from "@react-navigation/native";
 import * as Location from "expo-location";
 import { resetAndNavigate } from "@/utils/Helpers";
 import { StatusBar } from "expo-status-bar";
@@ -11,15 +10,20 @@ import RiderLiveTracking from "@/components/rider/RiderLiveTracking";
 import { updateRideStatus } from "@/service/rideService";
 import RiderActionButton from "@/components/rider/RiderActionButton";
 import OtpInputModal from "@/components/rider/OtpInputModal";
+import { useLocalSearchParams } from "expo-router";
 
 const LiveRide = () => {
   const [isOtpModalVisible, setOtpModalVisible] = useState(false);
   const { setLocation, location, setOnDuty } = useRiderStore();
   const { emit, on, off } = useWS();
   const [rideData, setRideData] = useState<any>(null);
-  const route = useRoute() as any;
-  const params = route?.params || {};
-  const id = params.id;
+  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const id =
+    typeof params.id === "string"
+      ? params.id
+      : Array.isArray(params.id)
+      ? params.id[0]
+      : undefined;
 
   useEffect(() => {
     let locationSubscription: any;

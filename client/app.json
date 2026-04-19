@@ -1,40 +1,40 @@
 {
   "expo": {
-    "name": "Ride App",
-    "slug": "rideapp",
+    "name": "Xigoa",
+    "slug": "xigoa",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./src/assets/images/icon.png",
-    "scheme": "myapp",
+    "icon": "./src/assets/app-icons/pro/apple-devices/AppIcon.appiconset/icon-ios-1024x1024.png",
+    "scheme": "xigoa",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./src/assets/images/splash.png",
+      "image": "./src/assets/app-icons/pro/apple-devices/AppIcon.appiconset/icon-ios-1024x1024.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#ac1d17"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.ritik.rideapp",
       "config": {
         "googleMapsApiKey": "AIzaSyCh1ybEuYu7ypDnz0JUrHHdVVDZPh8zJRs"
-            }
+      }
     },
     "android": {
       "config": {
-                "googleMaps": {
+        "googleMaps": {
           "apiKey": "AIzaSyCh1ybEuYu7ypDnz0JUrHHdVVDZPh8zJRs"
-                }
-            },
+        }
+      },
       "adaptiveIcon": {
-        "foregroundImage": "./src/assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./src/assets/app-icons/pro/android/mipmap-xxxhdpi/ic_launcher_foreground.png",
+        "backgroundColor": "#ac1d17"
       },
       "package": "com.ritik.rideapp"
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./src/assets/images/favicon.png"
+      "favicon": "./src/assets/app-icons/pro/android/playstore-icon.png"
     },
     "plugins": [
       "expo-router",

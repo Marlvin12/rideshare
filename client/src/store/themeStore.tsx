@@ -27,11 +27,11 @@ const lightTheme: ThemeColors = {
   textSecondary: "#6B7280",
   border: "#E5E7EB",
   divider: "#E5E7EB",
-  accent: "#10B981",
+  accent: "#ac1d17",
   error: "#EF4444",
   warning: "#F59E0B",
   info: "#3B82F6",
-  success: "#10B981",
+  success: "#ac1d17",
   promo: "#EF4444",
   notification: "#3B82F6",
 };
@@ -43,11 +43,11 @@ const darkTheme: ThemeColors = {
   textSecondary: "#8E8E93",
   border: "#2C2C2E",
   divider: "#2C2C2E",
-  accent: "#10B981",
+  accent: "#ac1d17",
   error: "#EF4444",
   warning: "#F59E0B",
   info: "#3B82F6",
-  success: "#10B981",
+  success: "#ac1d17",
   promo: "#EF4444",
   notification: "#3B82F6",
 };
@@ -62,17 +62,14 @@ interface ThemeStoreProps {
 const getThemeColors = (mode: ThemeMode): ThemeColors => {
   if (mode === "dark") return darkTheme;
   if (mode === "light") return lightTheme;
-  
-  // For "system", we'll default to dark for now
-  // In a real app, you'd use Appearance.getColorScheme() from react-native
-  return darkTheme;
+  return lightTheme;
 };
 
 export const useThemeStore = create<ThemeStoreProps>()(
   persist(
     (set) => ({
-      mode: "dark",
-      colors: darkTheme,
+      mode: "light",
+      colors: lightTheme,
       setMode: (mode) => {
         const colors = getThemeColors(mode);
         set({ mode, colors });
@@ -87,7 +84,22 @@ export const useThemeStore = create<ThemeStoreProps>()(
     }),
     {
       name: "theme-store",
+      version: 2,
       storage: createJSONStorage(() => mmkvStorage),
+      migrate: (persistedState: any, version: number) => {
+        if (version === 0) {
+          return { ...persistedState, mode: "light", colors: lightTheme };
+        }
+        if (version < 2 && persistedState?.mode) {
+          const m = persistedState.mode === "dark" ? "dark" : "light";
+          return {
+            ...persistedState,
+            mode: m,
+            colors: m === "dark" ? darkTheme : lightTheme,
+          };
+        }
+        return persistedState;
+      },
     }
   )
 );

@@ -1,4 +1,4 @@
-import { View, Image, TouchableOpacity, Linking } from "react-native";
+import { View, Image, TouchableOpacity, Linking, Alert } from "react-native";
 import React, { FC, useState } from "react";
 import CustomText from "../shared/CustomText";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
@@ -38,9 +38,23 @@ const DriverProfileCard: FC<DriverProfileCardProps> = ({
   const [imageError, setImageError] = useState(false);
 
   const handleCall = () => {
-    if (driver.phone) {
-      Linking.openURL(`tel:${driver.phone}`);
+    if (!driver.phone) {
+      Alert.alert("Call unavailable", "Driver phone number is not available.");
+      return;
     }
+    const phoneNumber = String(driver.phone).trim();
+    const telUrl = `tel:${phoneNumber}`;
+    Linking.canOpenURL(telUrl)
+      .then((supported) => {
+        if (!supported) {
+          Alert.alert("Call unavailable", "This device cannot place phone calls.");
+          return;
+        }
+        return Linking.openURL(telUrl);
+      })
+      .catch(() => {
+        Alert.alert("Call failed", "Unable to open the dialer on this device.");
+      });
   };
 
   const vehicleImageUrl = driver.vehicle?.photo || 

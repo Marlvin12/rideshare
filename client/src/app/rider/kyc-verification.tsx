@@ -1,6 +1,5 @@
 import {
   View,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Image,
@@ -10,6 +9,7 @@ import {
   Modal,
   TextInput,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import React, { useState, useEffect } from "react";
 import CustomText from "@/components/shared/CustomText";
 import { Colors } from "@/utils/Constants";
@@ -17,6 +17,7 @@ import { submitKYC, getKYCStatus } from "@/service/kycService";
 import { resetAndNavigate } from "@/utils/Helpers";
 import * as ImagePicker from "expo-image-picker";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import { useIsFocused } from "@react-navigation/native";
 
 const KYCVerification = () => {
   const [loading, setLoading] = useState(false);
@@ -30,6 +31,7 @@ const KYCVerification = () => {
   const [address, setAddress] = useState("");
   const [idFrontImage, setIdFrontImage] = useState("");
   const [idBackImage, setIdBackImage] = useState("");
+  const isFocused = useIsFocused();
 
   const idTypes = [
     { label: "National ID", value: "national_id" },
@@ -61,41 +63,60 @@ const KYCVerification = () => {
   };
 
   useEffect(() => {
-    const checkStatus = async () => {
+    let intervalRef: ReturnType<typeof setInterval> | null = null;
+    let isMounted = true;
+
+    const checkStatus = async (showAlerts: boolean) => {
       const result = await getKYCStatus();
+      if (!isMounted) {
+        return;
+      }
       if (result.success) {
         const status = result.data.kyc?.status || "pending";
         setCurrentStatus(status);
-        
-        if (status === "submitted") {
+
+        if (status === "approved") {
+          if (showAlerts) {
+            Alert.alert(
+              "KYC Approved",
+              "Your identity is verified. You can now access the rider platform.",
+              [
+                {
+                  text: "Go to Home",
+                  onPress: () => resetAndNavigate("/rider/home"),
+                },
+              ]
+            );
+          } else {
+            resetAndNavigate("/rider/home");
+          }
+          return;
+        }
+
+        if (status === "submitted" && showAlerts) {
           Alert.alert(
-            "KYC Already Submitted",
-            "Your verification documents are under review. You'll be notified once approved.",
-            [
-              {
-                text: "Go to Home",
-                onPress: () => resetAndNavigate("/rider/home"),
-              },
-            ]
-          );
-        } else if (status === "approved") {
-          Alert.alert(
-            "KYC Already Approved",
-            "Your identity is already verified.",
-            [
-              {
-                text: "Go to Home",
-                onPress: () => resetAndNavigate("/rider/home"),
-              },
-            ]
+            "KYC Under Review",
+            "Your verification documents are under review. This screen will update automatically once approved."
           );
         }
       }
       setCheckingStatus(false);
     };
-    
-    checkStatus();
-  }, []);
+
+    if (isFocused) {
+      void checkStatus(true);
+      intervalRef = setInterval(() => {
+        void checkStatus(false);
+      }, 15000);
+    }
+
+    return () => {
+      isMounted = false;
+      if (intervalRef) {
+        clearInterval(intervalRef);
+      }
+    };
+  }, [isFocused]);
 
   const handleSubmit = async () => {
     if (currentStatus === "submitted") {

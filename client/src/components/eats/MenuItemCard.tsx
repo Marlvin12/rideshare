@@ -35,7 +35,7 @@ const MenuItemCard: React.FC<MenuItemCardProps> = ({ item, onPress, onAddToCart 
             </CustomText>
             {item.isVegetarian && (
               <View style={styles.vegBadge}>
-                <Ionicons name="leaf" size={RFValue(10)} color="#059669" />
+                <Ionicons name="leaf" size={RFValue(10)} color="#ac1d17" />
               </View>
             )}
           </View>
@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
   vegBadge: {
-    backgroundColor: '#D1FAE5',
+    backgroundColor: '#FEE2E2',
     padding: 2,
     borderRadius: 4,
   },

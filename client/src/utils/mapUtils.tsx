@@ -1,4 +1,5 @@
 import axios from "axios";
+import * as Location from "expo-location";
 import { useUserStore } from "@/store/userStore";
 import { BASE_URL } from "@/service/config";
 
@@ -21,29 +22,38 @@ export const getLatLong = async (placeId: string) => {
     }
 }
 
-export const reverseGeocode = async (latitude: number, longitude: number) => {
+let _lastGeocode = 0;
+const GEOCODE_THROTTLE_MS = 1000;
+
+export const reverseGeocode = async (latitude: number, longitude: number): Promise<string | null> => {
     try {
+        if (latitude == null || longitude == null) return null;
+
+        const now = Date.now();
+        if (now - _lastGeocode < GEOCODE_THROTTLE_MS) return null;
+        _lastGeocode = now;
+
         const response = await axios.get(`${BASE_URL}/maps/reverse-geocode`, {
-            params: {
-                latitude,
-                longitude,
-            },
+            params: { latitude, longitude },
+            timeout: 5000,
         });
-        
-        if (response.data.address) {
+
+        if (response.data?.address) {
             return response.data.address;
         }
-        return "";
+        return null;
     } catch (error) {
-        console.log('Error during reverse geocoding: ', error);
-        return "";
+        return null;
     }
 };
 
 export const getPlacesSuggestions = async (query: string) => {
     const { location } = useUserStore.getState();
     try {
-        const params: any = { query };
+        const params: any = {
+            query: query.trim(),
+            _ts: Date.now(),
+        };
         
         if (location?.latitude && location?.longitude) {
             params.latitude = location.latitude;
@@ -52,12 +62,76 @@ export const getPlacesSuggestions = async (query: string) => {
 
         const response = await axios.get(`${BASE_URL}/maps/autocomplete`, {
             params,
+            headers: {
+                "Cache-Control": "no-cache",
+                Pragma: "no-cache",
+            },
         });
         
         return response.data.suggestions || [];
     } catch (error) {
         console.log('Error fetching autocomplete suggestions:', error);
         return [];
+    }
+};
+
+type LatLngPoint = {
+    latitude: number;
+    longitude: number;
+};
+
+export const getRouteInfo = async (
+    origin: LatLngPoint,
+    destination: LatLngPoint,
+    mode: "DRIVE" | "BICYCLE" | "WALK" | "TWO_WHEELER" = "DRIVE"
+) => {
+    try {
+        const response = await axios.get(`${BASE_URL}/maps/route`, {
+            params: {
+                originLat: origin.latitude,
+                originLng: origin.longitude,
+                destinationLat: destination.latitude,
+                destinationLng: destination.longitude,
+                mode,
+            },
+            timeout: 7000,
+        });
+        return response.data?.route ?? null;
+    } catch (error) {
+        console.log("Error fetching route:", error);
+        return null;
+    }
+};
+
+export const snapPointsToRoad = async (
+    points: LatLngPoint[],
+    interpolate: boolean = true
+) => {
+    try {
+        const response = await axios.post(`${BASE_URL}/maps/snap-to-road`, {
+            points,
+            interpolate,
+        });
+        return response.data?.points ?? [];
+    } catch (error) {
+        console.log("Error snapping points to road:", error);
+        return [];
+    }
+};
+
+export const validateDeliveryAddress = async (payload: {
+    addressLines: string[];
+    regionCode?: string;
+    locality?: string;
+    administrativeArea?: string;
+    postalCode?: string;
+}) => {
+    try {
+        const response = await axios.post(`${BASE_URL}/maps/address-validate`, payload);
+        return response.data?.validation ?? null;
+    } catch (error) {
+        console.log("Error validating delivery address:", error);
+        return null;
     }
 };
 

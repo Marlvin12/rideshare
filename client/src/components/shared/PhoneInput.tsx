@@ -1,5 +1,5 @@
-import { View, StyleSheet, TextInput, TouchableOpacity, Modal, FlatList, ScrollView } from "react-native";
-import React, { FC, useState, useEffect } from "react";
+import { View, StyleSheet, TextInput, TouchableOpacity, Modal, ScrollView } from "react-native";
+import React, { FC, useState } from "react";
 import { RFValue } from "react-native-responsive-fontsize";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import * as Localization from 'expo-localization';
@@ -15,35 +15,33 @@ interface Country {
 }
 
 const COUNTRIES: Country[] = [
-  { name: "United States", code: "US", flag: "🇺🇸", dialCode: "+1", maxLength: 10 },
-  { name: "United Kingdom", code: "GB", flag: "🇬🇧", dialCode: "+44", maxLength: 10 },
-  { name: "Canada", code: "CA", flag: "🇨🇦", dialCode: "+1", maxLength: 10 },
-  { name: "Australia", code: "AU", flag: "🇦🇺", dialCode: "+61", maxLength: 9 },
-  { name: "Zimbabwe", code: "ZW", flag: "🇿🇼", dialCode: "+263", maxLength: 9 },
-  { name: "South Africa", code: "ZA", flag: "🇿🇦", dialCode: "+27", maxLength: 9 },
-  { name: "Kenya", code: "KE", flag: "🇰🇪", dialCode: "+254", maxLength: 10 },
-  { name: "Nigeria", code: "NG", flag: "🇳🇬", dialCode: "+234", maxLength: 10 },
-  { name: "Ghana", code: "GH", flag: "🇬🇭", dialCode: "+233", maxLength: 9 },
-  { name: "India", code: "IN", flag: "🇮🇳", dialCode: "+91", maxLength: 10 },
-  { name: "China", code: "CN", flag: "🇨🇳", dialCode: "+86", maxLength: 11 },
-  { name: "Japan", code: "JP", flag: "🇯🇵", dialCode: "+81", maxLength: 10 },
-  { name: "Germany", code: "DE", flag: "🇩🇪", dialCode: "+49", maxLength: 11 },
-  { name: "France", code: "FR", flag: "🇫🇷", dialCode: "+33", maxLength: 9 },
-  { name: "Brazil", code: "BR", flag: "🇧🇷", dialCode: "+55", maxLength: 11 },
-  { name: "Mexico", code: "MX", flag: "🇲🇽", dialCode: "+52", maxLength: 10 },
-  { name: "Spain", code: "ES", flag: "🇪🇸", dialCode: "+34", maxLength: 9 },
-  { name: "Italy", code: "IT", flag: "🇮🇹", dialCode: "+39", maxLength: 10 },
+  { name: "United States", code: "US", flag: "\u{1F1FA}\u{1F1F8}", dialCode: "+1", maxLength: 10 },
+  { name: "United Kingdom", code: "GB", flag: "\u{1F1EC}\u{1F1E7}", dialCode: "+44", maxLength: 10 },
+  { name: "Canada", code: "CA", flag: "\u{1F1E8}\u{1F1E6}", dialCode: "+1", maxLength: 10 },
+  { name: "Australia", code: "AU", flag: "\u{1F1E6}\u{1F1FA}", dialCode: "+61", maxLength: 9 },
+  { name: "Zimbabwe", code: "ZW", flag: "\u{1F1FF}\u{1F1FC}", dialCode: "+263", maxLength: 9 },
+  { name: "South Africa", code: "ZA", flag: "\u{1F1FF}\u{1F1E6}", dialCode: "+27", maxLength: 9 },
+  { name: "Kenya", code: "KE", flag: "\u{1F1F0}\u{1F1EA}", dialCode: "+254", maxLength: 10 },
+  { name: "Nigeria", code: "NG", flag: "\u{1F1F3}\u{1F1EC}", dialCode: "+234", maxLength: 10 },
+  { name: "Ghana", code: "GH", flag: "\u{1F1EC}\u{1F1ED}", dialCode: "+233", maxLength: 9 },
+  { name: "India", code: "IN", flag: "\u{1F1EE}\u{1F1F3}", dialCode: "+91", maxLength: 10 },
+  { name: "China", code: "CN", flag: "\u{1F1E8}\u{1F1F3}", dialCode: "+86", maxLength: 11 },
+  { name: "Japan", code: "JP", flag: "\u{1F1EF}\u{1F1F5}", dialCode: "+81", maxLength: 10 },
+  { name: "Germany", code: "DE", flag: "\u{1F1E9}\u{1F1EA}", dialCode: "+49", maxLength: 11 },
+  { name: "France", code: "FR", flag: "\u{1F1EB}\u{1F1F7}", dialCode: "+33", maxLength: 9 },
+  { name: "Brazil", code: "BR", flag: "\u{1F1E7}\u{1F1F7}", dialCode: "+55", maxLength: 11 },
+  { name: "Mexico", code: "MX", flag: "\u{1F1F2}\u{1F1FD}", dialCode: "+52", maxLength: 10 },
+  { name: "Spain", code: "ES", flag: "\u{1F1EA}\u{1F1F8}", dialCode: "+34", maxLength: 9 },
+  { name: "Italy", code: "IT", flag: "\u{1F1EE}\u{1F1F9}", dialCode: "+39", maxLength: 10 },
 ];
 
 const getDefaultCountry = (): Country => {
   try {
     const locales = Localization.getLocales();
     const deviceRegion = locales[0]?.regionCode;
-    const foundCountry = COUNTRIES.find(
-      (country) => country.code === deviceRegion
-    );
+    const foundCountry = COUNTRIES.find((c) => c.code === deviceRegion);
     return foundCountry || COUNTRIES[0];
-  } catch (error) {
+  } catch {
     return COUNTRIES[0];
   }
 };
@@ -51,29 +49,40 @@ const getDefaultCountry = (): Country => {
 interface PhoneInputProps {
   value: string;
   onChangeText: (text: string) => void;
+  onCountryCodeChange?: (dialCode: string) => void;
   onBlur?: () => void;
   onFocus?: () => void;
+  accentColor?: string;
 }
 
 const PhoneInput: FC<PhoneInputProps> = ({
   value,
   onChangeText,
+  onCountryCodeChange,
   onBlur,
   onFocus,
+  accentColor,
 }) => {
-  const [selectedCountry, setSelectedCountry] = useState<Country>(getDefaultCountry());
+  const [selectedCountry, setSelectedCountry] = useState<Country>(() => {
+    const def = getDefaultCountry();
+    onCountryCodeChange?.(def.dialCode);
+    return def;
+  });
   const [showCountryModal, setShowCountryModal] = useState(false);
+
+  const checkColor = accentColor || Colors.primary;
 
   const handleCountrySelect = (country: Country) => {
     setSelectedCountry(country);
     setShowCountryModal(false);
     onChangeText("");
+    onCountryCodeChange?.(country.dialCode);
   };
 
   return (
     <>
       <View style={styles.container}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.countrySelector}
           onPress={() => setShowCountryModal(true)}
         >
@@ -82,7 +91,7 @@ const PhoneInput: FC<PhoneInputProps> = ({
           </CustomText>
           <MaterialIcons name="keyboard-arrow-down" size={20} color={Colors.text} />
         </TouchableOpacity>
-        
+
         <View style={styles.inputContainer}>
           <CustomText fontFamily="Regular" style={styles.countryCode}>
             {selectedCountry.dialCode}
@@ -109,7 +118,7 @@ const PhoneInput: FC<PhoneInputProps> = ({
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => setShowCountryModal(false)}
               style={styles.closeButton}
             >
@@ -140,7 +149,7 @@ const PhoneInput: FC<PhoneInputProps> = ({
                   {country.dialCode}
                 </CustomText>
                 {selectedCountry.code === country.code && (
-                  <MaterialIcons name="check" size={24} color={Colors.primary} />
+                  <MaterialIcons name="check" size={24} color={checkColor} />
                 )}
               </TouchableOpacity>
             ))}
@@ -156,11 +165,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: '#F3F4F6',
-    borderRadius: 10,
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 4,
-    marginTop: 8,
-    marginBottom: 16,
   },
   countrySelector: {
     flexDirection: "row",
@@ -187,9 +194,6 @@ const styles = StyleSheet.create({
     fontFamily: "Regular",
     height: 50,
     color: Colors.text,
-  },
-  contactIcon: {
-    paddingLeft: 8,
   },
   modalContainer: {
     flex: 1,

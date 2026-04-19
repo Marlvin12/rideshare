@@ -1,5 +1,6 @@
 import { StatusCodes } from 'http-status-codes';
 import { BadRequestError } from '../errors/index.js';
+import logger from '../config/logger.js';
 import { runAgent, autoProcessKyc } from '../services/aiAgent.js';
 
 export const chatWithAgent = async (req, res) => {
@@ -17,7 +18,7 @@ export const chatWithAgent = async (req, res) => {
       response: result.response,
     });
   } catch (error) {
-    console.error('Agent error:', error);
+    logger.error({ err: error }, 'Agent error');
     throw new BadRequestError('Failed to process agent request');
   }
 };
@@ -40,7 +41,7 @@ export const autoKycProcessing = async (req, res) => {
       result,
     });
   } catch (error) {
-    console.error('Auto KYC error:', error);
+    logger.error({ err: error }, 'Auto KYC error');
     throw new BadRequestError('Failed to auto-process KYC');
   }
 };
@@ -56,7 +57,7 @@ export const getAgentSuggestions = async (req, res) => {
       suggestions: result.response,
     });
   } catch (error) {
-    console.error('Suggestions error:', error);
+    logger.error({ err: error }, 'Suggestions error');
     throw new BadRequestError('Failed to get suggestions');
   }
 };

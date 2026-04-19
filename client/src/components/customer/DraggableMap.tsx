@@ -16,6 +16,7 @@ const DraggableMap: FC<{ height: number }> = ({ height }) => {
   const isFocused = useIsFocused();
   const [markers, setMarkers] = useState<any>([]);
   const [currentRegion, setCurrentRegion] = useState(defaultInitialRegion);
+  const locationReadyRef = useRef(false);
   const mapRef = useRef<MapView>(null);
   const { setLocation, location, outOfRange, setOutOfRange } = useUserStore();
   const { emit, on, off } = useWS();
@@ -31,19 +32,23 @@ const DraggableMap: FC<{ height: number }> = ({ height }) => {
               accuracy: Location.Accuracy.Balanced,
             });
             const { latitude, longitude } = location.coords;
-            
+
             const newRegion = {
               latitude,
               longitude,
               latitudeDelta: 0.05,
               longitudeDelta: 0.05,
             };
-            
+
             setCurrentRegion(newRegion);
-            
+            locationReadyRef.current = true;
+
+            const address = await reverseGeocode(latitude, longitude);
+            if (address != null) {
+              setLocation({ latitude, longitude, address });
+            }
+
             mapRef.current?.animateToRegion(newRegion, 1000);
-            
-            handleRegionChangeComplete(newRegion);
           } catch (error) {
             console.error("Error getting current location:", error);
           }
@@ -82,15 +87,21 @@ const DraggableMap: FC<{ height: number }> = ({ height }) => {
   // }, [location, emit, on, off, isFocused]);
 
   const handleRegionChangeComplete = async (newRegion: Region) => {
+    if (!locationReadyRef.current) {
+      return;
+    }
+
     const address = await reverseGeocode(
       newRegion.latitude,
       newRegion.longitude
     );
-    setLocation({
-      latitude: newRegion.latitude,
-      longitude: newRegion.longitude,
-      address: address,
-    });
+    if (address != null) {
+      setLocation({
+        latitude: newRegion.latitude,
+        longitude: newRegion.longitude,
+        address,
+      });
+    }
 
     const userLocation = {
       latitude: location?.latitude,
@@ -116,7 +127,9 @@ const DraggableMap: FC<{ height: number }> = ({ height }) => {
         animated: true,
       });
       const address = await reverseGeocode(latitude, longitude);
-      setLocation({ latitude, longitude, address });
+      if (address != null) {
+        setLocation({ latitude, longitude, address });
+      }
     } catch (error) {
       console.error("Error getting location:", error);
     }

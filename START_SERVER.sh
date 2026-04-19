@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "Starting Ride App Server..."
+echo "Starting Xigoa server..."
 echo ""
 echo "Checking environment..."
 

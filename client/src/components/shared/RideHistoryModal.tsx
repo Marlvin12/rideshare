@@ -4,13 +4,17 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
-import React, { FC, useState, useEffect } from "react";
+import React, { FC, useState, useEffect, useCallback } from "react";
 import CustomText from "./CustomText";
 import { Colors } from "@/utils/Constants";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { commonStyles } from "@/styles/commonStyles";
 import { appAxios } from "@/service/apiInterceptors";
+import { formatCurrency } from "@/utils/currency";
+import ErrorState from "./ErrorState";
+import EmptyState from "./EmptyState";
 
 interface RideHistoryModalProps {
   visible: boolean;
@@ -42,6 +46,8 @@ const RideHistoryModal: FC<RideHistoryModalProps> = ({
 }) => {
   const [rides, setRides] = useState<RideHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [selectedRide, setSelectedRide] = useState<RideHistoryItem | null>(null);
 
   useEffect(() => {
@@ -50,17 +56,31 @@ const RideHistoryModal: FC<RideHistoryModalProps> = ({
     }
   }, [visible]);
 
-  const fetchRideHistory = async () => {
+  const fetchRideHistory = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const response = await appAxios.get("/ride/rides?status=COMPLETED");
       setRides(response.data.rides || []);
-    } catch (error) {
-      console.error("Error fetching ride history:", error);
+    } catch (err) {
+      setError("We couldn't load your ride history. Pull down to refresh.");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      const response = await appAxios.get("/ride/rides?status=COMPLETED");
+      setRides(response.data.rides || []);
+    } catch (err) {
+      setError("We couldn't load your ride history. Pull down to refresh.");
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -110,7 +130,7 @@ const RideHistoryModal: FC<RideHistoryModalProps> = ({
           </View>
           <View style={{ alignItems: "flex-end" }}>
             <CustomText fontFamily="Bold" fontSize={16} style={{ color: Colors.primary }}>
-              ${item.fare.toFixed(2)}
+              {formatCurrency(item.fare)}
             </CustomText>
             {myRating && (
               <View style={[commonStyles.flexRow, { marginTop: 4 }]}>
@@ -214,7 +234,7 @@ const RideHistoryModal: FC<RideHistoryModalProps> = ({
               <DetailRow
                 icon="cash"
                 label="Fare"
-                value={`$${selectedRide.fare.toFixed(2)}`}
+                value={formatCurrency(selectedRide.fare)}
               />
               {otherParty && (
                 <DetailRow
@@ -298,29 +318,17 @@ const RideHistoryModal: FC<RideHistoryModalProps> = ({
               Loading ride history...
             </CustomText>
           </View>
+        ) : error ? (
+          <ErrorState
+            message={error}
+            onRetry={fetchRideHistory}
+          />
         ) : rides.length === 0 ? (
-          <View
-            style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 40 }}
-          >
-            <MaterialCommunityIcons
-              name="history"
-              size={80}
-              color="#CCC"
-            />
-            <CustomText
-              fontFamily="SemiBold"
-              fontSize={16}
-              style={{ marginTop: 16, textAlign: "center" }}
-            >
-              No Ride History
-            </CustomText>
-            <CustomText
-              fontSize={14}
-              style={{ marginTop: 8, color: "#666", textAlign: "center" }}
-            >
-              Your completed rides will appear here
-            </CustomText>
-          </View>
+          <EmptyState
+            icon="time-outline"
+            title="No ride history"
+            message="Your completed rides will appear here"
+          />
         ) : (
           <FlatList
             data={rides}
@@ -328,6 +336,14 @@ const RideHistoryModal: FC<RideHistoryModalProps> = ({
             keyExtractor={(item) => item._id}
             contentContainerStyle={{ padding: 16 }}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                colors={[Colors.primary]}
+                tintColor={Colors.primary}
+              />
+            }
           />
         )}
 

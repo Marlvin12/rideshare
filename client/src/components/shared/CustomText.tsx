@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet } from "react-native";
 import React, { FC } from "react";
 import { Colors } from "@/utils/Constants";
+import type { CustomTextProps } from "@/utils/types";
 import { RFValue } from "react-native-responsive-fontsize";
 
 const fontSizes = {

@@ -91,9 +91,23 @@ const restaurantSchema = new Schema(
       accountNumber: String,
       accountName: String,
     },
+    mobileMoneyPhone: {
+      type: String,
+      trim: true,
+    },
+    earnings: {
+      available: {
+        type: Number,
+        default: 0,
+      },
+    },
+    busyModeUntil: {
+      type: Date,
+      default: null,
+    },
     status: {
       type: String,
-      enum: ['pending', 'active', 'suspended'],
+      enum: ['draft', 'pending', 'active', 'suspended'],
       default: 'active',
     },
   },

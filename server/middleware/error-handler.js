@@ -1,4 +1,5 @@
 import { StatusCodes } from "http-status-codes";
+import logger from '../config/logger.js';
 
 const errorHandlerMiddleware = (err, req, res, next) => {
   let customError = {
@@ -21,6 +22,11 @@ const errorHandlerMiddleware = (err, req, res, next) => {
   if (err.name === "CastError") {
     customError.msg = `No item found with id: ${err.value}`;
     customError.statusCode = 404;
+  }
+
+  if (customError.statusCode >= 500) {
+    logger.error({ err, path: req.path, method: req.method }, 'Unhandled server error');
+    customError.msg = "An unexpected error occurred. Please try again later.";
   }
 
   return res.status(customError.statusCode).json({ msg: customError.msg });

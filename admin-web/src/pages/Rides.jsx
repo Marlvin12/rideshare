@@ -1,11 +1,155 @@
-import { useEffect, useState } from 'react';
-import { Car, MapPin, DollarSign, Clock, TrendingUp, Users as UsersIcon } from 'lucide-react';
+import { useEffect, useState, lazy, Suspense, Component } from 'react';
+import { Car, MapPin, ChevronDown, ChevronRight, DollarSign, Clock, Users as UsersIcon } from 'lucide-react';
 import api from '../services/api';
+
+const RidesMap = lazy(() => import('../components/RidesMap'));
+
+class MapErrorBoundary extends Component {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-[320px] flex items-center justify-center bg-slate-50 text-slate-600 text-sm rounded-2xl border border-slate-200">
+          Map unavailable. Refresh the page to retry.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const STATUS_STYLES = {
+  AWAITING_OFFERS: 'bg-amber-50 text-amber-700',
+  SEARCHING_FOR_RIDER: 'bg-blue-50 text-blue-700',
+  START: 'bg-emerald-50 text-emerald-700',
+  ARRIVED: 'bg-purple-50 text-purple-700',
+  COMPLETED: 'bg-slate-100 text-slate-700',
+};
+
+const VEHICLE_LABELS = {
+  bike: 'Bike',
+  human: 'Human',
+  cabEconomy: 'Cab Economy',
+  cabPremium: 'Cab Premium',
+};
+
+function StatusPill({ status }) {
+  const style = STATUS_STYLES[status] || STATUS_STYLES.SEARCHING_FOR_RIDER;
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${style}`}>
+      {status?.replace(/_/g, ' ') ?? '—'}
+    </span>
+  );
+}
+
+function RideRow({ ride, expanded, onToggle }) {
+  const vehicleLabel = VEHICLE_LABELS[ride.vehicle] || ride.vehicle;
+
+  return (
+    <>
+      <tr
+        className="hover:bg-slate-50 transition-colors cursor-pointer"
+        onClick={onToggle}
+      >
+        <td className="px-4 py-3">
+          <span className="font-medium text-slate-900">{vehicleLabel}</span>
+        </td>
+        <td className="px-4 py-3">
+          <StatusPill status={ride.status} />
+        </td>
+        <td className="px-4 py-3 text-sm tabular-nums font-medium">
+          ${Number(ride.fare ?? 0).toFixed(2)}
+        </td>
+        <td className="px-4 py-3 text-sm tabular-nums">{Number(ride.distance ?? 0).toFixed(1)} km</td>
+        <td className="px-4 py-3 text-sm text-slate-600 max-w-[180px] truncate" title={ride.pickup?.address}>
+          {ride.pickup?.address || '—'}
+        </td>
+        <td className="px-4 py-3 text-sm text-slate-600 max-w-[180px] truncate" title={ride.drop?.address}>
+          {ride.drop?.address || '—'}
+        </td>
+        <td className="px-4 py-3 text-xs text-slate-500">
+          {ride.createdAt ? new Date(ride.createdAt).toLocaleString() : '—'}
+        </td>
+        <td className="px-4 py-3">
+          {expanded ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="bg-slate-50/50">
+          <td colSpan={8} className="px-4 py-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+              <div className="space-y-3">
+                <div className="flex gap-3">
+                  <MapPin size={16} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 uppercase">Pickup</p>
+                    <p className="text-slate-700">{ride.pickup?.address || '—'}</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <MapPin size={16} className="text-rose-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 uppercase">Drop-off</p>
+                    <p className="text-slate-700">{ride.drop?.address || '—'}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <DollarSign size={16} className="text-slate-400" />
+                  <span className="text-slate-500">Pricing:</span>
+                  <span className="font-medium">{ride.pricingModel === 'bidding' ? 'Bidding' : 'Fixed'}</span>
+                  {ride.pricingModel === 'bidding' && (
+                    <span className="text-slate-600">Proposed ${Number(ride.proposedPrice ?? 0).toFixed(2)}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <UsersIcon size={16} className="text-slate-400" />
+                  <span className="text-slate-500">Offers:</span>
+                  <span className="font-medium">{ride.offers?.length ?? 0}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500">Customer:</span>
+                  <span className="font-medium">{ride.customer?.kyc?.fullName || ride.customer?.phone || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500">Rider:</span>
+                  <span className="font-medium">{ride.rider?.kyc?.fullName || ride.rider?.phone || 'Not assigned'}</span>
+                </div>
+                {ride.offers?.length > 0 && (
+                  <div className="pt-2">
+                    <p className="text-xs font-medium text-slate-500 uppercase mb-1">Offers</p>
+                    <div className="flex flex-wrap gap-2">
+                      {ride.offers.slice(0, 5).map((offer, i) => (
+                        <span key={i} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2 py-1 border border-slate-200 text-slate-700">
+                          {offer.riderId?.kyc?.fullName || offer.riderId?.phone || 'Unknown'} — ${Number(offer.offeredPrice ?? 0).toFixed(2)}
+                        </span>
+                      ))}
+                      {ride.offers.length > 5 && (
+                        <span className="text-slate-500 text-xs">+{ride.offers.length - 5} more</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
 
 export default function Rides() {
   const [rides, setRides] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [expandedId, setExpandedId] = useState(null);
 
   useEffect(() => {
     fetchRides();
@@ -15,7 +159,7 @@ export default function Rides() {
     setLoading(true);
     try {
       const response = await api.get(`/admin/rides?status=${filter}`);
-      setRides(response.data.rides);
+      setRides(response.data.rides ?? []);
     } catch (error) {
       console.error('Failed to fetch rides:', error);
     } finally {
@@ -23,41 +167,8 @@ export default function Rides() {
     }
   };
 
-  const getStatusBadge = (status) => {
-    const styles = {
-      AWAITING_OFFERS: { bg: 'bg-yellow-100', text: 'text-yellow-700', dot: 'bg-yellow-500' },
-      SEARCHING_FOR_RIDER: { bg: 'bg-blue-100', text: 'text-blue-700', dot: 'bg-blue-500' },
-      START: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500' },
-      ARRIVED: { bg: 'bg-purple-100', text: 'text-purple-700', dot: 'bg-purple-500' },
-      COMPLETED: { bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-500' },
-    };
-    const style = styles[status] || styles.SEARCHING_FOR_RIDER;
-    return (
-      <span className={`inline-flex items-center gap-2 px-3 py-1.5 ${style.bg} ${style.text} rounded-lg text-xs font-semibold`}>
-        <span className={`w-2 h-2 rounded-full ${style.dot}`}></span>
-        {status.replace(/_/g, ' ')}
-      </span>
-    );
-  };
-
-  const getVehicleBadge = (vehicle) => {
-    const vehicles = {
-      bike: { emoji: '🏍️', label: 'Bike', color: 'from-orange-500 to-red-600' },
-      human: { emoji: '🚶', label: 'Human', color: 'from-green-500 to-emerald-600' },
-      cabEconomy: { emoji: '🚗', label: 'Cab Economy', color: 'from-blue-500 to-blue-600' },
-      cabPremium: { emoji: '🚙', label: 'Cab Premium', color: 'from-purple-500 to-purple-600' },
-    };
-    const v = vehicles[vehicle] || vehicles.bike;
-    return (
-      <div className={`inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r ${v.color} text-white rounded-xl font-semibold shadow-lg`}>
-        <span className="text-lg">{v.emoji}</span>
-        <span>{v.label}</span>
-      </div>
-    );
-  };
-
   const filterOptions = [
-    { value: 'all', label: 'All Rides' },
+    { value: 'all', label: 'All' },
     { value: 'AWAITING_OFFERS', label: 'Awaiting Offers' },
     { value: 'START', label: 'Active' },
     { value: 'COMPLETED', label: 'Completed' },
@@ -66,19 +177,18 @@ export default function Rides() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-slate-800">Ride Management</h1>
-        <p className="text-slate-500 mt-1">Monitor and manage all rides on the platform</p>
+        <h1 className="text-2xl font-semibold text-slate-900">Rides</h1>
+        <p className="text-sm text-slate-500 mt-1">Monitor and manage rides</p>
       </div>
 
-      <div className="bg-white rounded-2xl p-2 border border-slate-200 inline-flex gap-1 overflow-x-auto">
+      <div className="flex gap-2 flex-wrap">
         {filterOptions.map((option) => (
           <button
             key={option.value}
+            type="button"
             onClick={() => setFilter(option.value)}
-            className={`px-5 py-2.5 rounded-xl font-medium whitespace-nowrap transition-all ${
-              filter === option.value
-                ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/30'
-                : 'text-slate-600 hover:bg-slate-50'
+            className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+              filter === option.value ? 'bg-blue-50 text-blue-700' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
             }`}
           >
             {option.label}
@@ -86,141 +196,60 @@ export default function Rides() {
         ))}
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center h-96">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-6">
-          {rides.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
-              <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Car size={32} className="text-slate-400" />
+      <MapErrorBoundary>
+        <div className="mb-6 min-h-[320px] rounded-2xl border border-slate-200 bg-white overflow-hidden">
+          <Suspense
+            fallback={
+              <div className="h-[320px] flex items-center justify-center bg-slate-50 text-slate-500 text-sm">
+                Loading map…
               </div>
-              <h3 className="text-lg font-semibold text-slate-800 mb-2">No rides found</h3>
-              <p className="text-slate-500">No rides match the current filter</p>
-            </div>
-          ) : (
-            rides.map((ride) => (
-              <div key={ride._id} className="bg-white rounded-2xl border border-slate-200 p-6 hover:shadow-lg transition-all">
-                <div className="flex items-start justify-between mb-6">
-                  <div className="flex items-center gap-4">
-                    {getVehicleBadge(ride.vehicle)}
-                    {getStatusBadge(ride.status)}
-                  </div>
-                  <div className="text-right">
-                    <p className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                      ${ride.fare.toFixed(2)}
-                    </p>
-                    <p className="text-sm text-slate-500 mt-1">{ride.distance.toFixed(1)} km</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                  <div className="space-y-4">
-                    <div className="flex items-start gap-3 p-4 bg-gradient-to-r from-emerald-50 to-green-50 rounded-xl border border-emerald-200">
-                      <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <MapPin size={18} className="text-white" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-emerald-700 mb-1">PICKUP</p>
-                        <p className="text-sm text-slate-700 break-words">{ride.pickup.address}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3 p-4 bg-gradient-to-r from-red-50 to-rose-50 rounded-xl border border-red-200">
-                      <div className="w-8 h-8 bg-red-500 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <MapPin size={18} className="text-white" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-red-700 mb-1">DROP-OFF</p>
-                        <p className="text-sm text-slate-700 break-words">{ride.drop.address}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
-                      <DollarSign size={20} className="text-slate-400" />
-                      <div>
-                        <p className="text-xs text-slate-500 font-medium">Pricing Model</p>
-                        <p className="text-slate-800 font-semibold">
-                          {ride.pricingModel === 'bidding' ? 'Bidding' : 'Fixed Price'}
-                        </p>
-                      </div>
-                    </div>
-                    {ride.pricingModel === 'bidding' && (
-                      <>
-                        <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
-                          <TrendingUp size={20} className="text-slate-400" />
-                          <div>
-                            <p className="text-xs text-slate-500 font-medium">Proposed Price</p>
-                            <p className="text-slate-800 font-semibold">${ride.proposedPrice.toFixed(2)}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-xl border border-blue-200">
-                          <UsersIcon size={20} className="text-blue-600" />
-                          <div>
-                            <p className="text-xs text-blue-700 font-medium">Total Offers</p>
-                            <p className="text-blue-800 font-bold text-lg">{ride.offers?.length || 0}</p>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                    <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
-                      <Clock size={20} className="text-slate-400" />
-                      <div>
-                        <p className="text-xs text-slate-500 font-medium">Created</p>
-                        <p className="text-slate-800 font-semibold text-sm">
-                          {new Date(ride.createdAt).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-6 border-t border-slate-200">
-                  <div className="p-4 bg-blue-50 rounded-xl">
-                    <p className="text-xs text-blue-700 font-semibold mb-2">Customer</p>
-                    <p className="font-bold text-slate-800">
-                      {ride.customer?.kyc?.fullName || ride.customer?.phone || 'N/A'}
-                    </p>
-                    {ride.customer?.phone && (
-                      <p className="text-sm text-slate-600 mt-1">{ride.customer.phone}</p>
-                    )}
-                  </div>
-                  <div className="p-4 bg-purple-50 rounded-xl">
-                    <p className="text-xs text-purple-700 font-semibold mb-2">Rider</p>
-                    <p className="font-bold text-slate-800">
-                      {ride.rider?.kyc?.fullName || ride.rider?.phone || 'Not assigned'}
-                    </p>
-                    {ride.rider?.phone && (
-                      <p className="text-sm text-slate-600 mt-1">{ride.rider.phone}</p>
-                    )}
-                  </div>
-                </div>
-
-                {ride.offers && ride.offers.length > 0 && (
-                  <div className="mt-6 pt-6 border-t border-slate-200">
-                    <p className="text-sm font-bold text-slate-800 mb-3">
-                      Driver Offers ({ride.offers.length})
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {ride.offers.slice(0, 3).map((offer, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
-                          <span className="text-sm text-slate-700 font-medium truncate pr-2">
-                            {offer.riderId?.kyc?.fullName || offer.riderId?.phone || 'Unknown'}
-                          </span>
-                          <span className="font-bold text-blue-600">${offer.offeredPrice.toFixed(2)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))
-          )}
+            }
+          >
+            <RidesMap rides={rides} className="" />
+          </Suspense>
         </div>
-      )}
+      </MapErrorBoundary>
+
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+        {loading ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-10 w-10 border-4 border-slate-200 border-t-blue-600" />
+          </div>
+        ) : rides.length === 0 ? (
+          <div className="py-16 text-center">
+            <Car className="mx-auto text-slate-300" size={48} />
+            <p className="mt-4 text-sm font-medium text-slate-600">No rides found</p>
+            <p className="text-sm text-slate-500">Try a different filter</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left text-xs font-medium uppercase tracking-wider text-slate-500 bg-slate-50">
+                  <th className="px-4 py-3">Vehicle</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Fare</th>
+                  <th className="px-4 py-3">Distance</th>
+                  <th className="px-4 py-3">Pickup</th>
+                  <th className="px-4 py-3">Drop</th>
+                  <th className="px-4 py-3">Created</th>
+                  <th className="px-4 py-3 w-10" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rides.map((ride) => (
+                  <RideRow
+                    key={ride._id}
+                    ride={ride}
+                    expanded={expandedId === ride._id}
+                    onToggle={() => setExpandedId(expandedId === ride._id ? null : ride._id)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

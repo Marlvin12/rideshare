@@ -1,6 +1,6 @@
-# RIDE Admin Dashboard
+# Xigoa Admin Dashboard
 
-Web-based administration portal for managing the RIDE rideshare platform.
+Web-based administration portal for managing the Xigoa platform.
 
 ## Features
 

@@ -1,0 +1,36 @@
+groups:
+  - name: api-alerts
+    rules:
+      - alert: ApiDown
+        expr: up{job="node-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API is down"
+          description: "Prometheus target for the Node.js API (job=\"node-api\") has been down for more than 2 minutes."
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="node-api",status_code=~"5.."}[5m]))
+            / sum(rate(http_requests_total{job="node-api"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error rate on API"
+          description: "More than 5% of HTTP requests to the Node.js API are returning 5xx over the last 5 minutes."
+
+      - alert: HighRequestLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="node-api"}[5m])) by (le)
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency (p95 > 500ms)"
+          description: "95th percentile request latency on the Node.js API is above 500ms for 10 minutes."
+

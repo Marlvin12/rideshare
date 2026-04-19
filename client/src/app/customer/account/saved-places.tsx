@@ -2,36 +2,49 @@ import {
   View,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
+  Alert,
 } from "react-native";
-import React from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
+import React, { useMemo, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { RFValue } from "react-native-responsive-fontsize";
 import CustomText from "@/components/shared/CustomText";
 import { useUserStore } from "@/store/userStore";
+import MapPickerModal from "@/components/customer/MapPickerModal";
 
 const DARK_BG = "#000000";
 const CARD_BG = "#1C1C1E";
 const TEXT_PRIMARY = "#FFFFFF";
 const TEXT_SECONDARY = "#8E8E93";
 const DIVIDER = "#2C2C2E";
-const ACCENT = "#10B981";
+const ACCENT = "#ac1d17";
 
 const SavedPlacesScreen = () => {
-  const { savedPlaces } = useUserStore();
+  const { savedPlaces, addSavedPlace } = useUserStore();
+  const [isMapModalVisible, setMapModalVisible] = useState(false);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<"home" | "work">("home");
 
   const defaultPlaces = [
     { id: "home", label: "Home", iconName: "home" as const, address: null },
     { id: "work", label: "Work", iconName: "briefcase" as const, address: null },
   ];
 
-  const places = defaultPlaces.map((p) => {
-    const saved = savedPlaces?.find((sp: any) => sp.id === p.id);
-    return { ...p, address: saved?.address || null };
-  });
+  const places = useMemo(
+    () =>
+      defaultPlaces.map((p) => {
+        const saved = savedPlaces?.find((sp: any) => sp.id === p.id);
+        return { ...p, address: saved?.address || null };
+      }),
+    [savedPlaces]
+  );
+
+  const selectedPlace = useMemo(
+    () => places.find((place) => place.id === selectedPlaceId) ?? places[0],
+    [places, selectedPlaceId]
+  );
 
   return (
     <View style={styles.container}>
@@ -64,6 +77,10 @@ const SavedPlacesScreen = () => {
                   styles.placeItem,
                   index < places.length - 1 && styles.placeItemBorder,
                 ]}
+                onPress={() => {
+                  setSelectedPlaceId(place.id as "home" | "work");
+                  setMapModalVisible(true);
+                }}
               >
                 <View style={styles.placeIcon}>
                   <Ionicons
@@ -89,7 +106,15 @@ const SavedPlacesScreen = () => {
             ))}
           </View>
 
-          <TouchableOpacity style={styles.addSection}>
+          <TouchableOpacity
+            style={styles.addSection}
+            onPress={() => {
+              const firstEmpty =
+                places.find((place) => !place.address)?.id ?? "home";
+              setSelectedPlaceId(firstEmpty as "home" | "work");
+              setMapModalVisible(true);
+            }}
+          >
             <View style={styles.addIcon}>
               <Ionicons name="add" size={RFValue(24)} color={ACCENT} />
             </View>
@@ -105,6 +130,42 @@ const SavedPlacesScreen = () => {
             </CustomText>
           </View>
         </ScrollView>
+
+        <MapPickerModal
+          title={selectedPlace?.id ?? "home"}
+          visible={isMapModalVisible}
+          onClose={() => setMapModalVisible(false)}
+          selectedLocation={{
+            latitude:
+              savedPlaces?.find((sp: any) => sp.id === selectedPlace?.id)
+                ?.latitude ?? 0,
+            longitude:
+              savedPlaces?.find((sp: any) => sp.id === selectedPlace?.id)
+                ?.longitude ?? 0,
+            address: selectedPlace?.address || "",
+          }}
+          onSelectLocation={(location) => {
+            const latitude = Number(location.latitude);
+            const longitude = Number(location.longitude);
+            const address = location.address?.trim();
+
+            if (!address || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+              Alert.alert(
+                "Address not set",
+                "Please pick a valid location on the map before saving."
+              );
+              return;
+            }
+
+            addSavedPlace({
+              id: selectedPlace.id,
+              label: selectedPlace.label,
+              address,
+              latitude,
+              longitude,
+            });
+          }}
+        />
       </SafeAreaView>
     </View>
   );

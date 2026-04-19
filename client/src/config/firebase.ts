@@ -1,22 +1,30 @@
-import { initializeApp } from "firebase/app";
-import { getAuth, initializeAuth, getReactNativePersistence } from "firebase/auth";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeAuth, getAuth, getReactNativePersistence } from "firebase/auth";
+import { Platform } from "react-native";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAnpcq56J2otESmsB8BnYp86nV9pw3wPec",
-  authDomain: "kwendash-dbf13.firebaseapp.com",
-  projectId: "kwendash-dbf13",
-  storageBucket: "kwendash-dbf13.firebasestorage.app",
-  messagingSenderId: "269847145872",
-  appId: "1:269847145872:web:597b75e6b451c5867a9715",
-  measurementId: "G-N755SHJNJT"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? "",
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? "",
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? "",
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "",
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? "",
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? "",
+  measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID ?? "",
 };
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(AsyncStorage)
-});
+let auth;
+if (getApps().length === 1 && !(app as any)._authInitialized) {
+  auth = Platform.OS === 'web'
+    ? getAuth(app)
+    : initializeAuth(app, {
+        persistence: getReactNativePersistence(AsyncStorage),
+      });
+  (app as any)._authInitialized = true;
+} else {
+  auth = getAuth(app);
+}
 
 export { app, auth };
-

@@ -103,5 +103,11 @@ const rideSchema = new Schema(
   }
 );
 
+rideSchema.index({ customer: 1, createdAt: -1 });
+rideSchema.index({ rider: 1, createdAt: -1 });
+rideSchema.index({ status: 1 });
+rideSchema.index({ createdAt: -1 });
+rideSchema.index({ 'offers.riderId': 1 });
+
 const Ride = mongoose.model("Ride", rideSchema);
 export default Ride;

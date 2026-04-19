@@ -4,9 +4,10 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   Image,
+  Alert,
 } from 'react-native';
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from 'expo-status-bar';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +18,7 @@ import { Colors, screenHeight, screenWidth } from '@/utils/Constants';
 import { getRestaurantById, getRestaurantMenu } from '@/service/eatsService';
 import { useEatsStore } from '@/store/eatsStore';
 import { useCartStore } from '@/store/cartStore';
+import { formatCurrency } from '@/utils/currency';
 
 const RestaurantDetailScreen = () => {
   const { restaurantId } = useLocalSearchParams<{ restaurantId: string }>();
@@ -189,7 +191,7 @@ const RestaurantDetailScreen = () => {
             <View style={styles.infoItem}>
               <Ionicons name="bicycle-outline" size={RFValue(18)} color={Colors.primary} />
               <CustomText fontFamily="Medium" fontSize={14} style={styles.infoValue}>
-                ${selectedRestaurant.deliveryFee.toFixed(2)}
+                {formatCurrency(selectedRestaurant.deliveryFee)}
               </CustomText>
               <CustomText fontFamily="Regular" fontSize={11} style={styles.infoLabel}>
                 Delivery Fee
@@ -219,7 +221,10 @@ const RestaurantDetailScreen = () => {
             <MenuItemCard
               key={item._id}
               item={item}
-              onPress={() => {}}
+              onPress={() => {
+                const desc = item.description?.trim() || 'No description.';
+                Alert.alert(item.name, `${desc}\n\n${formatCurrency(item.price)}`);
+              }}
               onAddToCart={() => handleAddToCart(item)}
             />
           ))}

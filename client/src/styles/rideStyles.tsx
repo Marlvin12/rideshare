@@ -1,5 +1,7 @@
 import { screenHeight, screenWidth, Colors } from "@/utils/Constants";
-import { Platform, StyleSheet } from "react-native";
+import { Platform, StatusBar as RNStatusBar, StyleSheet } from "react-native";
+
+const ANDROID_STATUS_BAR_HEIGHT = RNStatusBar.currentHeight || 24;
 
 export const rideStyles = StyleSheet.create({
     container: {
@@ -8,7 +10,7 @@ export const rideStyles = StyleSheet.create({
     },
     backButton: {
         position: "absolute",
-        top: Platform.OS === 'android' ? 20 : 60,
+        top: Platform.OS === 'android' ? ANDROID_STATUS_BAR_HEIGHT + 10 : 60,
         left: 10,
         backgroundColor: Colors.white,
         borderRadius: 100,
@@ -19,8 +21,8 @@ export const rideStyles = StyleSheet.create({
         shadowRadius: 12,
         shadowColor: Colors.glass_shadow,
         elevation: 8,
-        height: 40,
-        width: 40
+        height: 44,
+        width: 44
     },
     couponContainer: {
         flexDirection: 'row',
@@ -166,7 +168,7 @@ export const rideStyles = StyleSheet.create({
     backButtonText: {
         color: Colors.white,
     },
-    swipeableContaniner: {
+    swipeableContainer: {
         position: 'absolute',
         width: '100%',
         padding: 10,
@@ -181,7 +183,7 @@ export const rideStyles = StyleSheet.create({
         borderTopLeftRadius: 25,
         borderTopRightRadius: 25,
     },
-    swipeableContaninerRider: {
+    swipeableContainerRider: {
         width: '100%',
         padding: 10,
         backgroundColor: Colors.white,

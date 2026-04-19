@@ -2,6 +2,7 @@ import axios from "axios";
 import { BASE_URL } from "./config";
 import { tokenStorage } from "@/store/storage";
 import { Alert } from "react-native";
+import { useRiderStore } from "@/store/riderStore";
 
 export const submitKYC = async (kycData: {
   idType: string;
@@ -38,6 +39,13 @@ export const getKYCStatus = async () => {
         Authorization: `Bearer ${token}`,
       },
     });
+    const { user, setUser } = useRiderStore.getState();
+    if (user?.role === "rider" && res.data?.kyc) {
+      setUser({
+        ...user,
+        kyc: res.data.kyc,
+      });
+    }
     return { success: true, data: res.data };
   } catch (error: any) {
     console.error("Get KYC status error:", error);

@@ -1,5 +1,6 @@
 import { Agent, run, tool } from '@openai/agents';
 import { z } from 'zod';
+import logger from '../config/logger.js';
 import User from '../models/User.js';
 import Ride from '../models/Ride.js';
 
@@ -183,7 +184,7 @@ const detectFraudTool = tool({
 // Create the main Platform Manager Agent
 const platformManagerAgent = new Agent({
   name: 'Platform Manager',
-  instructions: `You are an AI assistant for managing the RIDE rideshare platform. You help administrators:
+  instructions: `You are an AI assistant for managing the Xigoa platform. You help administrators:
   
 - Review and process KYC (Know Your Customer) submissions
 - Monitor platform statistics and performance
@@ -210,25 +211,25 @@ Always be professional, clear, and provide actionable information.`,
 // Main function to run the agent
 export async function runAgent(userMessage) {
   try {
-    console.log('Running agent with message:', userMessage);
+    logger.info({ messageLength: userMessage.length }, 'Running agent');
     
     const result = await run(platformManagerAgent, userMessage);
     
-    console.log('Agent response received');
+    logger.info('Agent response received');
     
     return {
       response: result.finalOutput,
       success: true,
     };
   } catch (error) {
-    console.error('Agent error:', error);
+    logger.error({ err: error }, 'Agent error');
     throw error;
   }
 }
 
 // Helper function for auto-processing KYC
 export async function autoProcessKyc() {
-  console.log('AI Agent: Auto-processing KYC submissions...');
+  logger.info('Auto-processing KYC submissions');
   
   const result = await runAgent(
     'Review all pending KYC submissions. For each one, check if documents are present. If both front and back images are present, approve it with a note. If anything is missing, reject it with a clear reason. Provide a summary of all actions taken.'
@@ -239,6 +240,6 @@ export async function autoProcessKyc() {
 
 // Initialize function (for backward compatibility)
 export async function initializeAgent() {
-  console.log('✅ OpenAI Agents SDK initialized');
+  logger.info('OpenAI Agents SDK initialized');
   return 'agent-ready';
 }
