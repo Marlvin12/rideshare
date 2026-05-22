@@ -1,0 +1,27 @@
+name: Auto-merge Claude PRs
+
+# Fully autonomous merge. When Claude opens a PR, this enables GitHub's
+# native auto-merge. GitHub then merges the PR only once branch protection
+# on `main` is satisfied — i.e. CI is green AND Codex has left an approving
+# review. Nothing merges without those gates passing.
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+jobs:
+  enable-auto-merge:
+    # Claude Code Action pushes its work to branches prefixed `claude/`.
+    if: >-
+      github.event.pull_request.draft == false &&
+      ( startsWith(github.head_ref, 'claude/') ||
+        github.event.pull_request.user.login == 'claude[bot]' )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Enable squash auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --auto --squash
