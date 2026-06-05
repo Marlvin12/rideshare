@@ -163,6 +163,27 @@ export const updateRideStatus = async (req, res) => {
       ride.arrivedAt = new Date();
     } else if (status === "COMPLETED") {
       ride.completedAt = new Date();
+
+      // Money safety: never force-mark a ride paid without a real collection.
+      // If a Paynow mobile-money collection has ALREADY settled this ride
+      // (payment.status === 'paid'), leave method/gatewayRef/capturedAmount
+      // intact. Otherwise record an explicit in-person CASH settlement so that
+      // 'paid' always reflects either a settled gateway transaction or a
+      // cash-settled-in-person record.
+      const fare = ride.fare || 0;
+      if (ride.payment?.status === "paid") {
+        // Mobile-money collection already captured — do not overwrite.
+      } else {
+        ride.payment = ride.payment || {};
+        ride.payment.method = "cash";
+        ride.payment.status = "paid";
+        ride.payment.settledInPerson = true;
+        ride.payment.gatewayRef = null;
+        ride.payment.capturedAmount = fare;
+        ride.payment.paidAt = new Date();
+      }
+
+      // Driver earnings credit: unchanged 20/80 platformFee/riderPayout split.
       const riderShare = (ride.fare || 0) * 0.8;
       const riderId = ride.rider?._id ?? ride.rider;
       if (riderId && riderShare > 0) {

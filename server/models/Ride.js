@@ -70,6 +70,43 @@ const rideSchema = new Schema(
       enum: ["AWAITING_OFFERS", "SEARCHING_FOR_RIDER", "START", "ARRIVED", "COMPLETED"],
       default: "AWAITING_OFFERS",
     },
+    payment: {
+      // How the fare was collected. 'mobile_money' is set by the Paynow
+      // collection flow; 'cash' is an explicit in-person settlement recorded
+      // on ride completion when no gateway charge succeeded.
+      method: {
+        type: String,
+        enum: ["cash", "mobile_money"],
+        default: null,
+      },
+      // 'paid' must mean EITHER a settled Paynow transaction OR an explicit
+      // cash-settled-in-person record — never an implicit charge that did not
+      // happen.
+      status: {
+        type: String,
+        enum: ["pending", "paid", "failed"],
+        default: "pending",
+      },
+      // Gateway reference for mobile-money collections; stays null for cash.
+      gatewayRef: {
+        type: String,
+        default: null,
+      },
+      // Amount actually captured/settled (mobile-money capture or cash fare).
+      capturedAmount: {
+        type: Number,
+        default: null,
+      },
+      // True when the fare was settled in person (cash) rather than via gateway.
+      settledInPerson: {
+        type: Boolean,
+        default: false,
+      },
+      paidAt: {
+        type: Date,
+        default: null,
+      },
+    },
     otp: {
       type: String,
       default: null,
