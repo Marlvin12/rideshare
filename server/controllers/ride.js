@@ -464,3 +464,58 @@ export const rateRide = async (req, res) => {
     throw new BadRequestError("Failed to submit rating");
   }
 };
+
+export const getRatings = async (req, res) => {
+  const userId = req.user.id;
+  const isRider = req.user.role === 'rider';
+
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const skip = (page - 1) * limit;
+
+  const query = {
+    status: 'COMPLETED',
+    $and: [
+      { $or: [{ customer: userId }, { rider: userId }] },
+      { $or: [
+        { 'rating.riderRating': { $exists: true, $ne: null } },
+        { 'rating.customerRating': { $exists: true, $ne: null } },
+      ]},
+    ],
+  };
+
+  const [rides, total] = await Promise.all([
+    Ride.find(query)
+      .select('pickup drop fare rating createdAt customer rider')
+      .populate('customer', 'name')
+      .populate('rider', 'name profilePhoto')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Ride.countDocuments(query),
+  ]);
+
+  const ratings = rides.map((ride) => {
+    const isCustomer = ride.customer?._id?.toString() === userId;
+    return {
+      rideId: ride._id,
+      date: ride.createdAt,
+      pickupAddress: ride.pickup?.address,
+      dropAddress: ride.drop?.address,
+      fare: ride.fare,
+      counterpart: isCustomer ? ride.rider : ride.customer,
+      myRole: isCustomer ? 'customer' : 'rider',
+      givenRating: isCustomer ? ride.rating?.riderRating : ride.rating?.customerRating,
+      givenFeedback: isCustomer ? ride.rating?.customerFeedback : ride.rating?.riderFeedback,
+      receivedRating: isCustomer ? ride.rating?.customerRating : ride.rating?.riderRating,
+    };
+  });
+
+  res.status(StatusCodes.OK).json({
+    ratings,
+    total,
+    page,
+    totalPages: Math.ceil(total / limit),
+  });
+};

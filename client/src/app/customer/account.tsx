@@ -317,6 +317,11 @@ const AccountScreen = () => {
               onPress={() => router.push("/customer/account/settings")}
             />
             <MenuItem
+              iconName="star"
+              title="My Ratings"
+              onPress={() => router.push("/customer/account/ratings")}
+            />
+            <MenuItem
               iconName="chatbubble"
               title="Messages"
               onPress={() => router.push("/customer/account/messages")}
