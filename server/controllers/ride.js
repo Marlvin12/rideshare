@@ -9,6 +9,7 @@ import {
   calculateFare,
   generateOTP,
 } from "../utils/mapUtils.js";
+import { buildRideCompletionInc } from "../utils/rideCompletion.js";
 
 export const createRide = async (req, res) => {
   const { vehicle, pickup, drop, proposedPrice, suggestedPriceRange, pricingModel = "bidding" } = req.body;
@@ -157,32 +158,50 @@ export const updateRideStatus = async (req, res) => {
       throw new BadRequestError("Invalid ride status");
     }
 
-    ride.status = status;
+    if (status === "COMPLETED") {
+      // Atomic, idempotent completion: flip to COMPLETED only if it isn't
+      // already. ONLY the request that wins this transition runs the one-time
+      // side-effects (earnings credit + driver ride counters), so a repeated or
+      // concurrent COMPLETED can neither double-credit earnings nor double-count
+      // rides. This closes both the BE-8 counter double-count AND the
+      // pre-existing earnings double-credit on this path.
+      const completed = await Ride.findOneAndUpdate(
+        { _id: rideId, status: { $ne: "COMPLETED" } },
+        { $set: { status: "COMPLETED", completedAt: new Date() } },
+        { new: true }
+      ).populate("customer rider");
 
-    if (status === "ARRIVED") {
-      ride.arrivedAt = new Date();
-    } else if (status === "COMPLETED") {
-      ride.completedAt = new Date();
-      const riderShare = (ride.fare || 0) * 0.8;
-      const riderId = ride.rider?._id ?? ride.rider;
-      if (riderId && riderShare > 0) {
-        await User.findByIdAndUpdate(riderId, {
-          $inc: {
-            "earnings.total": riderShare,
-            "earnings.available": riderShare,
-          },
-        });
-        await EarningsTransaction.create({
-          userId: riderId,
-          amount: riderShare,
-          type: "ride",
-          referenceType: "Ride",
-          referenceId: ride._id,
-        });
+      if (completed) {
+        const riderShare = (completed.fare || 0) * 0.8;
+        const riderId = completed.rider?._id ?? completed.rider;
+        if (riderId && riderShare > 0) {
+          // Credit earnings AND increment the ride counters in one atomic $inc,
+          // so stats.completedRides / stats.totalRides actually move (BE-8 —
+          // they were never incremented, so every driver card showed 0).
+          await User.findByIdAndUpdate(riderId, {
+            $inc: buildRideCompletionInc(riderShare),
+          });
+          await EarningsTransaction.create({
+            userId: riderId,
+            amount: riderShare,
+            type: "ride",
+            referenceType: "Ride",
+            referenceId: completed._id,
+          });
+        }
+        ride = completed;
+      } else {
+        // Already completed by an earlier request — return current state, no
+        // repeated side-effects.
+        ride = await Ride.findById(rideId).populate("customer rider");
       }
+    } else {
+      ride.status = status;
+      if (status === "ARRIVED") {
+        ride.arrivedAt = new Date();
+      }
+      await ride.save();
     }
-
-    await ride.save();
 
     req.socket.to(`ride_${rideId}`).emit("rideUpdate", ride);
 
