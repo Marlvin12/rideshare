@@ -42,6 +42,7 @@ import customerRouter from './routes/customer.js';
 import onboardingRouter from './routes/onboarding.js';
 
 import handleSocketConnection from './controllers/sockets.js';
+import { attachRedisAdapter } from './config/socketAdapter.js';
 import { startWorkers, stopWorkers } from './jobs/workers.js';
 import { closeQueues } from './jobs/queues.js';
 import { closeRedis, connectRedis } from './config/redis.js';
@@ -108,6 +109,11 @@ app.use((req, res, next) => {
   req.io = io;
   return next();
 });
+
+// Enable cross-instance Socket.IO fan-out (BE-2) before wiring handlers, so
+// io.to(room).emit reaches sockets on every instance, not just this process.
+// No-op/degrades to single-instance if Redis is unavailable.
+attachRedisAdapter(io);
 
 handleSocketConnection(io);
 
