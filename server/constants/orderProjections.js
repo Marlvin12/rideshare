@@ -6,4 +6,6 @@
 // Adds profilePhoto + aggregate rating so the tracking screen can render a real
 // courier card (photo + rating) instead of a generic glyph + "Your courier".
 // phone is included for the existing call button; nothing sensitive is exposed.
-export const COURIER_PUBLIC_FIELDS = 'name phone vehicleType profilePhoto stats.rating stats.totalRatings';
+// `vehicle` is the sub-document ({type, plate, ...}) — the previous string used
+// `vehicleType`, which is not a model field and silently projected nothing.
+export const COURIER_PUBLIC_FIELDS = 'name phone vehicle profilePhoto stats.rating stats.totalRatings';

@@ -11,10 +11,12 @@ describe('COURIER_PUBLIC_FIELDS (BE-21)', () => {
     assert.ok(fields.includes('stats.totalRatings'), 'rating count');
   });
 
-  it('keeps the existing fields (name, phone for call, vehicleType)', () => {
-    for (const f of ['name', 'phone', 'vehicleType']) {
+  it('keeps name + phone (call button) and projects the real vehicle sub-doc', () => {
+    for (const f of ['name', 'phone', 'vehicle']) {
       assert.ok(fields.includes(f), `retains ${f}`);
     }
+    // Guard against regressing to the no-op `vehicleType` (not a model field).
+    assert.ok(!fields.includes('vehicleType'), 'must use vehicle, not the no-op vehicleType');
   });
 
   it('exposes nothing sensitive (no email/firebaseUid/kyc/earnings)', () => {
