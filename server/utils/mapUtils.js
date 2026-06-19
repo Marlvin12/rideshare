@@ -22,33 +22,11 @@ const estimateRideTime = (distanceKm) => {
   return (distanceKm / averageCitySpeedKmh) * 60;
 };
 
-export const calculateSurgeMultiplier = (activeRides = 0, availableRiders = 0, timeOfDay = null) => {
-  if (availableRiders === 0) return 2.0;
-  
-  const demandSupplyRatio = activeRides / availableRiders;
-  
-  let surgeMultiplier = 1.0;
-  
-  if (demandSupplyRatio > 3.0) {
-    surgeMultiplier = 2.5;
-  } else if (demandSupplyRatio > 2.0) {
-    surgeMultiplier = 2.0;
-  } else if (demandSupplyRatio > 1.5) {
-    surgeMultiplier = 1.5;
-  } else if (demandSupplyRatio > 1.0) {
-    surgeMultiplier = 1.3;
-  }
-  
-  const hour = timeOfDay ? new Date(timeOfDay).getHours() : new Date().getHours();
-  const isPeakHour = (hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 19);
-  
-  if (isPeakHour && surgeMultiplier < 1.2) {
-    surgeMultiplier = 1.2;
-  }
-  
-  return Math.round(surgeMultiplier * 10) / 10;
-};
-
+// Surge pricing was never used on the server: calculateSurgeMultiplier had no
+// caller, and Loko prices rides via the offer-your-own-fare model, not surge.
+// The dead computation has been removed (BE-16). calculateFare still accepts an
+// optional surgeMultiplier (default 1.0 = no surge) so its callers and the
+// returned breakdown shape are unchanged.
 export const calculateFare = (distance, surgeMultiplier = 1.0) => {
   const estimatedTimeMinutes = estimateRideTime(distance);
   
