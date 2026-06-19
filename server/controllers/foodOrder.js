@@ -9,7 +9,7 @@ import {
 } from '../utils/mockEatsData.js';
 
 import { assertStatusTransition } from '../utils/orderStatus.js';
-import { getDeliveryFeeRange, estimateFoodDeliveryWindow, computeFoodTax } from '../utils/mapUtils.js';
+import { getDeliveryFeeRange, estimateFoodDeliveryWindow, computeFoodTax, sumFoodOrderTotal } from '../utils/mapUtils.js';
 
 const USE_MOCK_DATA =
   process.env.NODE_ENV === 'production'
@@ -151,7 +151,7 @@ const runOrderValidation = async ({ restaurantId, items, deliveryAddress }) => {
   const platformFee = parseFloat((itemsTotal * PLATFORM_FEE_RATE).toFixed(2));
   const deliveryFee = estimate;
   const tax = computeFoodTax(itemsTotal);
-  const total = parseFloat((itemsTotal + deliveryFee + platformFee + tax).toFixed(2));
+  const total = sumFoodOrderTotal({ itemsTotal, deliveryFee, platformFee, tax });
 
   return {
     ok: true,
@@ -315,9 +315,11 @@ export const handleItemUnavailable = async (req, res) => {
       order.items = order.items.filter((i) => i.menuItemId.toString() !== menuItemId);
       order.pricing.itemsTotal = parseFloat((order.pricing.itemsTotal - affectedItem.subtotal).toFixed(2));
       order.pricing.platformFee = parseFloat((order.pricing.itemsTotal * PLATFORM_FEE_RATE).toFixed(2));
-      order.pricing.total = parseFloat(
-        (order.pricing.itemsTotal + order.pricing.deliveryFee + order.pricing.platformFee).toFixed(2)
-      );
+      // Recompute tax on the reduced subtotal and fold it back into the total —
+      // previously the refund path left tax stale AND dropped it from the total,
+      // breaking the breakdown invariant once a tax rate is configured (BE-13 review).
+      order.pricing.tax = computeFoodTax(order.pricing.itemsTotal);
+      order.pricing.total = sumFoodOrderTotal(order.pricing);
       order.timeline.push({
         status: order.status,
         timestamp: new Date(),

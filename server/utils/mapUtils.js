@@ -181,6 +181,18 @@ export const computeFoodTax = (itemsTotal, rate = FOOD_TAX_RATE) => {
   return Math.round(base * r * 100) / 100;
 };
 
+// Single source of truth for a food order's grand total, so initial pricing and
+// the partial-refund recompute can't drift (BE-13 review: the refund path used
+// to omit tax from the total). total === itemsTotal + deliveryFee + platformFee + tax.
+export const sumFoodOrderTotal = ({ itemsTotal = 0, deliveryFee = 0, platformFee = 0, tax = 0 } = {}) => {
+  const sum =
+    (Number(itemsTotal) || 0) +
+    (Number(deliveryFee) || 0) +
+    (Number(platformFee) || 0) +
+    (Number(tax) || 0);
+  return Math.round(sum * 100) / 100;
+};
+
 export const generateOTP = () => {
   return Math.floor(1000 + Math.random() * 9000).toString();
 };
