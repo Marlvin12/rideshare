@@ -9,6 +9,7 @@ import {
   calculateFare,
   generateOTP,
 } from "../utils/mapUtils.js";
+import { buildRideCompletionInc } from "../utils/rideCompletion.js";
 
 export const createRide = async (req, res) => {
   const { vehicle, pickup, drop, proposedPrice, suggestedPriceRange, pricingModel = "bidding" } = req.body;
@@ -166,11 +167,11 @@ export const updateRideStatus = async (req, res) => {
       const riderShare = (ride.fare || 0) * 0.8;
       const riderId = ride.rider?._id ?? ride.rider;
       if (riderId && riderShare > 0) {
+        // Credit earnings AND increment the ride counters in one atomic $inc, so
+        // stats.completedRides / stats.totalRides actually move (BE-8 — they were
+        // never incremented, so every driver card showed 0 completed rides).
         await User.findByIdAndUpdate(riderId, {
-          $inc: {
-            "earnings.total": riderShare,
-            "earnings.available": riderShare,
-          },
+          $inc: buildRideCompletionInc(riderShare),
         });
         await EarningsTransaction.create({
           userId: riderId,
