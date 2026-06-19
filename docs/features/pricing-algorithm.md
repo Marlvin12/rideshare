@@ -36,6 +36,13 @@ Total Fare = max(Final Fare, Minimum Fare)
 
 ## Surge Pricing
 
+> **Note:** Surge is **not applied on the server.** Loko prices rides via the
+> offer-your-own-fare model, and `calculateSurgeMultiplier` was removed from the
+> server (it had no caller). The thresholds below remain documented for the
+> client-side helper (`client/src/utils/mapUtils.tsx`), which still ships the
+> function; `calculateFare` accepts an optional `surgeMultiplier` that defaults
+> to `1.0` (no surge).
+
 ### Demand-Supply Ratio Thresholds
 
 | Ratio (Active Rides / Available Drivers) | Surge Multiplier |
@@ -71,18 +78,15 @@ Total Fare = max(Final Fare, Minimum Fare)
 ### Server-side (Node.js)
 
 ```javascript
-import { calculateFare, calculateSurgeMultiplier } from './utils/mapUtils.js';
+import { calculateFare } from './utils/mapUtils.js';
 
 const distance = 5.2;
-const activeRides = 45;
-const availableRiders = 20;
 
-const surgeMultiplier = calculateSurgeMultiplier(activeRides, availableRiders);
-const fareBreakdown = calculateFare(distance, surgeMultiplier);
+// Server does not apply surge — surgeMultiplier defaults to 1.0.
+const fareBreakdown = calculateFare(distance);
 
 console.log('Bike Fare:', fareBreakdown.bike);
 console.log('Estimated Time:', fareBreakdown.estimatedTime, 'minutes');
-console.log('Surge Multiplier:', fareBreakdown.surgeMultiplier);
 ```
 
 ### Client-side (React Native/TypeScript)
@@ -100,5 +104,5 @@ console.log(`ETA: ${fareBreakdown.estimatedTime} min`);
 
 ## Implementation
 
-- **Server:** `server/utils/mapUtils.js` - `calculateFare`, `calculateSurgeMultiplier`, `estimateRideTime`
+- **Server:** `server/utils/mapUtils.js` - `calculateFare`, `estimateRideTime` (no surge; offer-your-own-fare model)
 - **Client:** `client/src/utils/mapUtils.tsx` - Same functions (bike, cabEconomy, cabPremium; no human delivery)
