@@ -5,6 +5,7 @@ import User from "../models/User.js";
 import Ride from "../models/Ride.js";
 import FoodOrder from "../models/FoodOrder.js";
 import ChatMessage from "../models/ChatMessage.js";
+import { createCoalescingThrottle } from "../utils/coalescingThrottle.js";
 
 const CHAT_HISTORY_LIMIT = 100;
 
@@ -12,6 +13,65 @@ const onDutyRiders = new Map();
 
 const handleSocketConnection = (io) => {
   io._onDutyRiders = onDutyRiders;
+
+  // Push the latest nearby-riders list to a single subscribed customer. Called
+  // directly (and immediately) for per-customer events (subscribeToZone,
+  // searchrider). Hoisted to the connection-manager scope so there is exactly
+  // one definition shared by every socket, not one closure per connection.
+  function sendNearbyRiders(socket, location, ride = null) {
+    const nearbyriders = Array.from(onDutyRiders.values())
+      .map((rider) => ({
+        ...rider,
+        distance: geolib.getDistance(rider.coords, location),
+      }))
+      .filter((rider) => rider.distance <= 60000)
+      .sort((a, b) => a.distance - b.distance);
+
+    socket.emit("nearbyriders", nearbyriders);
+
+    if (ride) {
+      const topRiders = nearbyriders.slice(0, Math.min(10, nearbyriders.length));
+
+      logger.info({ rideId: ride._id, riderCount: topRiders.length }, "Broadcasting ride offer");
+
+      const rideData = ride.toObject ? ride.toObject() : ride;
+
+      topRiders.forEach((rider, index) => {
+        setTimeout(() => {
+          const rideOffer = {
+            ...rideData,
+            pickupDistance: (rider.distance / 1000).toFixed(2),
+            estimatedPickupTime: Math.ceil(rider.distance / 500),
+          };
+
+          io.to(rider.socketId).emit("rideOffer", rideOffer);
+          logger.debug({ socketId: rider.socketId, rideId: ride._id }, "Ride offer sent to rider");
+        }, index * 500);
+      });
+    }
+
+    return nearbyriders;
+  }
+
+  // The global fan-out: recompute + push nearby riders to EVERY subscribed
+  // customer. This is O(customers x riders); it must NOT run on every rider GPS
+  // ping (see throttle below).
+  function broadcastNearbyRidersToCustomers() {
+    io.sockets.sockets.forEach((socket) => {
+      if (socket.user?.role === "customer") {
+        const customerCoords = socket.user.coords;
+        if (customerCoords) sendNearbyRiders(socket, customerCoords);
+      }
+    });
+  }
+
+  // Coalesce a burst of rider location pings into at most one global broadcast
+  // per window. Replaces calling broadcastNearbyRidersToCustomers() directly on
+  // every ping, which melted at city scale.
+  const scheduleNearbyRidersBroadcast = createCoalescingThrottle(
+    broadcastNearbyRidersToCustomers,
+    Number(process.env.NEARBY_BROADCAST_THROTTLE_MS) || 2000
+  );
 
   io.use(async (socket, next) => {
     try {
@@ -46,7 +106,7 @@ const handleSocketConnection = (io) => {
         socket.join("onDuty");
         logger.info({ riderId: user.id, coords }, "Rider on duty");
         logger.debug({ count: onDutyRiders.size }, "On-duty riders count");
-        updateNearbyriders();
+        scheduleNearbyRidersBroadcast();
       });
 
       socket.on("goOffDuty", () => {
@@ -54,14 +114,14 @@ const handleSocketConnection = (io) => {
         socket.leave("onDuty");
         logger.info({ riderId: user.id }, "Rider off duty");
         logger.debug({ count: onDutyRiders.size }, "On-duty riders count");
-        updateNearbyriders();
+        scheduleNearbyRidersBroadcast();
       });
 
       socket.on("updateLocation", (coords) => {
         if (onDutyRiders.has(user.id)) {
           onDutyRiders.get(user.id).coords = coords;
           logger.debug({ riderId: user.id, coords }, "Rider location updated");
-          updateNearbyriders();
+          scheduleNearbyRidersBroadcast();
           socket.to(`rider_${user.id}`).emit("riderLocationUpdate", {
             riderId: user.id,
             coords,
@@ -339,49 +399,9 @@ const handleSocketConnection = (io) => {
       logger.info({ userId: user.id, role: user.role }, "User disconnected");
     });
 
-    function updateNearbyriders() {
-      io.sockets.sockets.forEach((socket) => {
-        if (socket.user?.role === "customer") {
-          const customerCoords = socket.user.coords;
-          if (customerCoords) sendNearbyRiders(socket, customerCoords);
-        }
-      });
-    }
-
-    function sendNearbyRiders(socket, location, ride = null) {
-      const nearbyriders = Array.from(onDutyRiders.values())
-        .map((rider) => ({
-          ...rider,
-          distance: geolib.getDistance(rider.coords, location),
-        }))
-        .filter((rider) => rider.distance <= 60000)
-        .sort((a, b) => a.distance - b.distance);
-
-      socket.emit("nearbyriders", nearbyriders);
-
-      if (ride) {
-        const topRiders = nearbyriders.slice(0, Math.min(10, nearbyriders.length));
-        
-        logger.info({ rideId: ride._id, riderCount: topRiders.length }, "Broadcasting ride offer");
-        
-        const rideData = ride.toObject ? ride.toObject() : ride;
-        
-        topRiders.forEach((rider, index) => {
-          setTimeout(() => {
-            const rideOffer = {
-              ...rideData,
-              pickupDistance: (rider.distance / 1000).toFixed(2),
-              estimatedPickupTime: Math.ceil(rider.distance / 500),
-            };
-            
-            io.to(rider.socketId).emit("rideOffer", rideOffer);
-            logger.debug({ socketId: rider.socketId, rideId: ride._id }, "Ride offer sent to rider");
-          }, index * 500);
-        });
-      }
-
-      return nearbyriders;
-    }
+    // sendNearbyRiders / broadcastNearbyRidersToCustomers / the throttled
+    // scheduleNearbyRidersBroadcast are defined once at the connection-manager
+    // scope above (shared across all sockets).
 
     function getRiderSocket(riderId) {
       const rider = onDutyRiders.get(riderId);
