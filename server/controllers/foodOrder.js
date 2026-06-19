@@ -10,6 +10,7 @@ import {
 
 import { assertStatusTransition } from '../utils/orderStatus.js';
 import { getDeliveryFeeRange, estimateFoodDeliveryWindow, computeFoodTax, sumFoodOrderTotal, normalizeTip, computeCourierDeliveryEarnings } from '../utils/mapUtils.js';
+import { COURIER_PUBLIC_FIELDS } from '../constants/orderProjections.js';
 
 const USE_MOCK_DATA =
   process.env.NODE_ENV === 'production'
@@ -423,7 +424,7 @@ export const getOrders = async (req, res) => {
         .skip(skip)
         .limit(limit)
         .populate('restaurantId', 'name imageUrl')
-        .populate('courierId', 'name phone'),
+        .populate('courierId', COURIER_PUBLIC_FIELDS),
       FoodOrder.countDocuments(query),
     ]);
 
@@ -448,7 +449,7 @@ export const getOrderById = async (req, res) => {
 
     const order = await FoodOrder.findById(id)
       .populate('restaurantId', 'name imageUrl location contactPhone')
-      .populate('courierId', 'name phone vehicleType')
+      .populate('courierId', COURIER_PUBLIC_FIELDS)
       .populate('customerId', 'name phone');
 
     if (!order) {
