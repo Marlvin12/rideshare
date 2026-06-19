@@ -169,6 +169,18 @@ export const getDeliveryFeeRange = (distanceKm) => {
   return { min, max, estimate };
 };
 
+// Food tax as a fraction of the items subtotal. Defaults to 0 (no tax) so
+// behaviour is unchanged until a market sets FOOD_TAX_RATE (e.g. 0.15) —
+// replaces a hardcoded `const tax = 0` (audit BE-13). Negative/NaN inputs and
+// rates are floored to 0 so tax is never negative.
+export const FOOD_TAX_RATE = Number(process.env.FOOD_TAX_RATE) || 0;
+
+export const computeFoodTax = (itemsTotal, rate = FOOD_TAX_RATE) => {
+  const base = Math.max(0, Number(itemsTotal) || 0);
+  const r = Math.max(0, Number(rate) || 0);
+  return Math.round(base * r * 100) / 100;
+};
+
 export const generateOTP = () => {
   return Math.floor(1000 + Math.random() * 9000).toString();
 };

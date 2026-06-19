@@ -9,7 +9,7 @@ import {
 } from '../utils/mockEatsData.js';
 
 import { assertStatusTransition } from '../utils/orderStatus.js';
-import { getDeliveryFeeRange, estimateFoodDeliveryWindow } from '../utils/mapUtils.js';
+import { getDeliveryFeeRange, estimateFoodDeliveryWindow, computeFoodTax } from '../utils/mapUtils.js';
 
 const USE_MOCK_DATA =
   process.env.NODE_ENV === 'production'
@@ -150,7 +150,7 @@ const runOrderValidation = async ({ restaurantId, items, deliveryAddress }) => {
   const { min, max, estimate } = getDeliveryFeeRange(deliveryDistance);
   const platformFee = parseFloat((itemsTotal * PLATFORM_FEE_RATE).toFixed(2));
   const deliveryFee = estimate;
-  const tax = 0;
+  const tax = computeFoodTax(itemsTotal);
   const total = parseFloat((itemsTotal + deliveryFee + platformFee + tax).toFixed(2));
 
   return {
