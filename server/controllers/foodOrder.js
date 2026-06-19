@@ -9,7 +9,7 @@ import {
 } from '../utils/mockEatsData.js';
 
 import { assertStatusTransition } from '../utils/orderStatus.js';
-import { getDeliveryFeeRange } from '../utils/mapUtils.js';
+import { getDeliveryFeeRange, estimateFoodDeliveryWindow } from '../utils/mapUtils.js';
 
 const USE_MOCK_DATA =
   process.env.NODE_ENV === 'production'
@@ -600,9 +600,27 @@ async function assignNearestCourier(order, io) {
         { status: 'courier_assigned', timestamp: new Date(), message: 'Courier auto-assigned' }
       );
 
-      const estimatedDelivery = new Date();
-      estimatedDelivery.setMinutes(estimatedDelivery.getMinutes() + 30);
-      freshOrder.estimatedDeliveryTime = estimatedDelivery;
+      // Real delivery-window estimate (BE-6a), replacing a flat +30min. Kitchen
+      // prep and the courier's drive to the restaurant run in parallel; then the
+      // restaurant->customer leg + handling. chosen.distance is meters.
+      const restaurantToCustomerKm = calculateDistance(
+        restaurantCoords.latitude,
+        restaurantCoords.longitude,
+        order.deliveryAddress?.latitude,
+        order.deliveryAddress?.longitude,
+      );
+      const deliveryWindow = estimateFoodDeliveryWindow({
+        courierToRestaurantKm: chosen.distance / 1000,
+        restaurantToCustomerKm,
+        prepMinutes: order.estimatedPreparationTime,
+        now: Date.now(),
+      });
+      // Keep the single legacy field (upper bound) and add the [min,max] window.
+      freshOrder.estimatedDeliveryTime = deliveryWindow.etaMax;
+      freshOrder.estimatedDeliveryWindow = {
+        min: deliveryWindow.etaMin,
+        max: deliveryWindow.etaMax,
+      };
 
       await freshOrder.save();
 

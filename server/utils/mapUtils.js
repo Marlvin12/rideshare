@@ -22,6 +22,46 @@ const estimateRideTime = (distanceKm) => {
   return (distanceKm / averageCitySpeedKmh) * 60;
 };
 
+// Food-ETA tunables (env-configurable).
+const FOOD_ETA_SPEED_KMH = Number(process.env.FOOD_ETA_SPEED_KMH) || 25;
+const FOOD_ETA_HANDLING_MIN = Number(process.env.FOOD_ETA_HANDLING_MIN) || 5;
+const FOOD_ETA_WINDOW_MIN = Number(process.env.FOOD_ETA_WINDOW_MIN) || 10;
+
+/**
+ * Estimate the delivery window for a food order at courier-assignment time,
+ * replacing the previous flat "+30 minutes" guess (BE-6a).
+ *
+ * The kitchen prep and the courier's drive to the restaurant happen in PARALLEL,
+ * so the food is picked up after max(prep, courier->restaurant travel); then the
+ * restaurant->customer leg plus a small handling buffer. Returns a [min, max]
+ * window so the UI can show "Arriving 7:05-7:15" instead of one flat time.
+ *
+ * All distances in km; a null/invalid/zero distance contributes 0 minutes
+ * (graceful — e.g. an un-geocoded address just yields a shorter estimate rather
+ * than throwing).
+ *
+ * @returns {{ etaMin: Date, etaMax: Date, centerMinutes: number }}
+ */
+export const estimateFoodDeliveryWindow = ({
+  courierToRestaurantKm = 0,
+  restaurantToCustomerKm = 0,
+  prepMinutes = 0,
+  now = Date.now(),
+  speedKmh = FOOD_ETA_SPEED_KMH,
+} = {}) => {
+  const travelMin = (km) => (Number.isFinite(km) && km > 0 ? (km / speedKmh) * 60 : 0);
+  const prep = Number.isFinite(prepMinutes) && prepMinutes > 0 ? prepMinutes : 0;
+  const untilPickup = Math.max(prep, travelMin(courierToRestaurantKm));
+  const centerMin = untilPickup + travelMin(restaurantToCustomerKm) + FOOD_ETA_HANDLING_MIN;
+  const minMin = Math.max(0, centerMin - FOOD_ETA_WINDOW_MIN / 2);
+  const maxMin = centerMin + FOOD_ETA_WINDOW_MIN / 2;
+  return {
+    etaMin: new Date(now + minMin * 60_000),
+    etaMax: new Date(now + maxMin * 60_000),
+    centerMinutes: Math.round(centerMin),
+  };
+};
+
 // Surge pricing was never used on the server: calculateSurgeMultiplier had no
 // caller, and Loko prices rides via the offer-your-own-fare model, not surge.
 // The dead computation has been removed (BE-16). calculateFare still accepts an
