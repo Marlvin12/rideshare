@@ -199,6 +199,14 @@ const foodOrderSchema = new Schema(
     estimatedDeliveryTime: {
       type: Date,
     },
+    // Real delivery window [min, max] computed from prep + courier->restaurant +
+    // restaurant->customer travel (BE-6a), replacing a flat +30min. The single
+    // estimatedDeliveryTime above carries the upper bound for legacy consumers;
+    // this lets the UI show a range ("Arriving 7:05-7:15").
+    estimatedDeliveryWindow: {
+      min: { type: Date },
+      max: { type: Date },
+    },
     actualDeliveryTime: {
       type: Date,
     },
