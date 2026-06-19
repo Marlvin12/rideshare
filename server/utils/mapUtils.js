@@ -169,6 +169,30 @@ export const getDeliveryFeeRange = (distanceKm) => {
   return { min, max, estimate };
 };
 
+// Food tax as a fraction of the items subtotal. Defaults to 0 (no tax) so
+// behaviour is unchanged until a market sets FOOD_TAX_RATE (e.g. 0.15) —
+// replaces a hardcoded `const tax = 0` (audit BE-13). Negative/NaN inputs and
+// rates are floored to 0 so tax is never negative.
+export const FOOD_TAX_RATE = Number(process.env.FOOD_TAX_RATE) || 0;
+
+export const computeFoodTax = (itemsTotal, rate = FOOD_TAX_RATE) => {
+  const base = Math.max(0, Number(itemsTotal) || 0);
+  const r = Math.max(0, Number(rate) || 0);
+  return Math.round(base * r * 100) / 100;
+};
+
+// Single source of truth for a food order's grand total, so initial pricing and
+// the partial-refund recompute can't drift (BE-13 review: the refund path used
+// to omit tax from the total). total === itemsTotal + deliveryFee + platformFee + tax.
+export const sumFoodOrderTotal = ({ itemsTotal = 0, deliveryFee = 0, platformFee = 0, tax = 0 } = {}) => {
+  const sum =
+    (Number(itemsTotal) || 0) +
+    (Number(deliveryFee) || 0) +
+    (Number(platformFee) || 0) +
+    (Number(tax) || 0);
+  return Math.round(sum * 100) / 100;
+};
+
 export const generateOTP = () => {
   return Math.floor(1000 + Math.random() * 9000).toString();
 };
