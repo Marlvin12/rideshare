@@ -9,7 +9,7 @@ import {
 } from '../utils/mockEatsData.js';
 
 import { assertStatusTransition } from '../utils/orderStatus.js';
-import { getDeliveryFeeRange, estimateFoodDeliveryWindow, computeFoodTax, sumFoodOrderTotal } from '../utils/mapUtils.js';
+import { getDeliveryFeeRange, estimateFoodDeliveryWindow, computeFoodTax, sumFoodOrderTotal, normalizeTip, computeCourierDeliveryEarnings } from '../utils/mapUtils.js';
 
 const USE_MOCK_DATA =
   process.env.NODE_ENV === 'production'
@@ -198,6 +198,7 @@ export const createOrder = async (req, res) => {
       channel,
       unavailableItemPreference,
       idempotencyKey,
+      tip: rawTip,
     } = req.body;
     const customerId = req.user.id;
 
@@ -221,7 +222,11 @@ export const createOrder = async (req, res) => {
     }
 
     const { restaurant, orderItems, deliveryDistance, pricing, suggestedFeeRange } = validation;
-    const { itemsTotal, deliveryFee, platformFee, tax, total } = pricing;
+    const { itemsTotal, deliveryFee, platformFee, tax } = pricing;
+    // Optional customer tip (BE-20). Validated server-side and folded into the
+    // total; passed through 100% to the courier on delivery.
+    const tip = normalizeTip(rawTip);
+    const total = sumFoodOrderTotal({ itemsTotal, deliveryFee, platformFee, tax, tip });
 
     const order = new FoodOrder({
       customerId,
@@ -232,6 +237,7 @@ export const createOrder = async (req, res) => {
         deliveryFee,
         platformFee,
         tax,
+        tip,
         total,
         restaurantShare: itemsTotal,
         platformShare: platformFee,
@@ -829,7 +835,11 @@ export const markDelivered = async (req, res) => {
     order.timeline.push({ status: 'delivered', timestamp: new Date(), message: 'Order delivered successfully' });
     await order.save();
 
-    const courierEarnings = (order.pricing?.courierShare || order.pricing?.deliveryFee || 0) * 0.8;
+    const courierEarnings = computeCourierDeliveryEarnings({
+      courierShare: order.pricing?.courierShare,
+      deliveryFee: order.pricing?.deliveryFee,
+      tip: order.pricing?.tip,
+    });
     await User.findByIdAndUpdate(courierId, {
       $inc: { 'earnings.total': courierEarnings, 'earnings.available': courierEarnings },
     });
