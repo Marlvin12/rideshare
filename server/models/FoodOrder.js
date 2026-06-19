@@ -67,6 +67,12 @@ const foodOrderSchema = new Schema(
         type: Number,
         default: 0,
       },
+      // Customer tip, set at checkout (BE-20). Passed through 100% to the
+      // courier on delivery (not platform-cut). Part of the grand total.
+      tip: {
+        type: Number,
+        default: 0,
+      },
       total: {
         type: Number,
         required: true,

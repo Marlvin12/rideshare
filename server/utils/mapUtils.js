@@ -183,14 +183,40 @@ export const computeFoodTax = (itemsTotal, rate = FOOD_TAX_RATE) => {
 
 // Single source of truth for a food order's grand total, so initial pricing and
 // the partial-refund recompute can't drift (BE-13 review: the refund path used
-// to omit tax from the total). total === itemsTotal + deliveryFee + platformFee + tax.
-export const sumFoodOrderTotal = ({ itemsTotal = 0, deliveryFee = 0, platformFee = 0, tax = 0 } = {}) => {
+// to omit tax from the total).
+// total === itemsTotal + deliveryFee + platformFee + tax + tip.
+export const sumFoodOrderTotal = ({ itemsTotal = 0, deliveryFee = 0, platformFee = 0, tax = 0, tip = 0 } = {}) => {
   const sum =
     (Number(itemsTotal) || 0) +
     (Number(deliveryFee) || 0) +
     (Number(platformFee) || 0) +
-    (Number(tax) || 0);
+    (Number(tax) || 0) +
+    (Number(tip) || 0);
   return Math.round(sum * 100) / 100;
+};
+
+// Max tip accepted (guards against a fat-finger / malicious huge tip). Env-tunable.
+export const MAX_FOOD_TIP = Number(process.env.MAX_FOOD_TIP) || 100;
+
+// Normalize a client-supplied tip: non-positive / NaN -> 0, clamped to MAX_FOOD_TIP,
+// rounded to 2dp (BE-20). Tips are optional and never negative.
+export const normalizeTip = (value, maxTip = MAX_FOOD_TIP) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const cap = Number.isFinite(Number(maxTip)) && Number(maxTip) > 0 ? Number(maxTip) : Infinity;
+  return Math.round(Math.min(n, cap) * 100) / 100;
+};
+
+// Courier's share of the delivery fee (env-tunable; default 0.8 = prior behaviour).
+export const COURIER_DELIVERY_RATE = Number(process.env.COURIER_DELIVERY_RATE) || 0.8;
+
+// Courier earnings on a completed delivery: their cut of the delivery fee PLUS
+// 100% of the customer tip (tips are passed straight through, not platform-cut).
+// Preserves the prior `(courierShare || deliveryFee || 0) * 0.8` fallback (BE-20).
+export const computeCourierDeliveryEarnings = ({ courierShare = 0, deliveryFee = 0, tip = 0 } = {}, rate = COURIER_DELIVERY_RATE) => {
+  const feeBase = (Number(courierShare) || Number(deliveryFee) || 0) * (Number(rate) || 0);
+  const tipPass = Math.max(0, Number(tip) || 0);
+  return Math.round((feeBase + tipPass) * 100) / 100;
 };
 
 export const generateOTP = () => {
