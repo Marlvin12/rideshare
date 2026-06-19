@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "/Users/malvin/claude-board/skill/board/board reminder" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "/Users/malvin/claude-board/skill/board/board reminder" }
+        ]
+      }
+    ]
+  }
+}
