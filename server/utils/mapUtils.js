@@ -184,15 +184,18 @@ export const computeFoodTax = (itemsTotal, rate = FOOD_TAX_RATE) => {
 // Single source of truth for a food order's grand total, so initial pricing and
 // the partial-refund recompute can't drift (BE-13 review: the refund path used
 // to omit tax from the total).
-// total === itemsTotal + deliveryFee + platformFee + tax + tip.
-export const sumFoodOrderTotal = ({ itemsTotal = 0, deliveryFee = 0, platformFee = 0, tax = 0, tip = 0 } = {}) => {
+// total === itemsTotal + deliveryFee + platformFee + tax + tip - discount.
+// A promo discount (BE-24) is capped at the items subtotal upstream, so it can
+// never make the total negative; the max(0, ...) is belt-and-suspenders.
+export const sumFoodOrderTotal = ({ itemsTotal = 0, deliveryFee = 0, platformFee = 0, tax = 0, tip = 0, discount = 0 } = {}) => {
   const sum =
     (Number(itemsTotal) || 0) +
     (Number(deliveryFee) || 0) +
     (Number(platformFee) || 0) +
     (Number(tax) || 0) +
-    (Number(tip) || 0);
-  return Math.round(sum * 100) / 100;
+    (Number(tip) || 0) -
+    Math.max(0, Number(discount) || 0);
+  return Math.round(Math.max(0, sum) * 100) / 100;
 };
 
 // Max tip accepted (guards against a fat-finger / malicious huge tip). Env-tunable.
