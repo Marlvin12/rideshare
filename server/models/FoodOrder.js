@@ -73,6 +73,16 @@ const foodOrderSchema = new Schema(
         type: Number,
         default: 0,
       },
+      // Promo discount applied at checkout (BE-24), authoritatively recomputed
+      // server-side from the items subtotal. Subtracted from the total.
+      discount: {
+        type: Number,
+        default: 0,
+      },
+      promoCode: {
+        type: String,
+        default: null,
+      },
       total: {
         type: Number,
         required: true,

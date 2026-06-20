@@ -11,6 +11,7 @@ import {
 import { assertStatusTransition } from '../utils/orderStatus.js';
 import { getDeliveryFeeRange, estimateFoodDeliveryWindow, computeFoodTax, sumFoodOrderTotal, normalizeTip, computeCourierDeliveryEarnings } from '../utils/mapUtils.js';
 import { COURIER_PUBLIC_FIELDS } from '../constants/orderProjections.js';
+import { evaluatePromo, recordRedemption } from './promotions.js';
 
 const USE_MOCK_DATA =
   process.env.NODE_ENV === 'production'
@@ -200,6 +201,7 @@ export const createOrder = async (req, res) => {
       unavailableItemPreference,
       idempotencyKey,
       tip: rawTip,
+      promoCode: rawPromoCode,
     } = req.body;
     const customerId = req.user.id;
 
@@ -227,7 +229,23 @@ export const createOrder = async (req, res) => {
     // Optional customer tip (BE-20). Validated server-side and folded into the
     // total; passed through 100% to the courier on delivery.
     const tip = normalizeTip(rawTip);
-    const total = sumFoodOrderTotal({ itemsTotal, deliveryFee, platformFee, tax, tip });
+
+    // Optional promo (BE-24): authoritatively re-validate + recompute the discount
+    // server-side from the REAL items subtotal — never trust a client-sent amount.
+    // A failed/invalid code rejects the order so the customer isn't silently
+    // charged full price after expecting a discount.
+    let discount = 0;
+    let appliedPromo = null;
+    if (rawPromoCode) {
+      const promoResult = await evaluatePromo({ code: rawPromoCode, subtotal: itemsTotal, userId: customerId });
+      if (!promoResult.ok) {
+        return res.status(promoResult.status).json({ success: false, msg: promoResult.msg });
+      }
+      discount = promoResult.discount;
+      appliedPromo = promoResult.promo;
+    }
+
+    const total = sumFoodOrderTotal({ itemsTotal, deliveryFee, platformFee, tax, tip, discount });
 
     const order = new FoodOrder({
       customerId,
@@ -239,6 +257,8 @@ export const createOrder = async (req, res) => {
         platformFee,
         tax,
         tip,
+        discount,
+        promoCode: appliedPromo ? appliedPromo.code : null,
         total,
         restaurantShare: itemsTotal,
         platformShare: platformFee,
@@ -261,6 +281,16 @@ export const createOrder = async (req, res) => {
     });
 
     await order.save();
+
+    // Record the redemption now that the order exists (best-effort: the discount
+    // is already applied + persisted, so a failed record must not fail the order).
+    if (appliedPromo) {
+      try {
+        await recordRedemption({ promo: appliedPromo, userId: customerId, discountAmount: discount, orderId: order._id });
+      } catch (err) {
+        logger.error({ err, orderId: order._id }, 'promo redemption record failed (discount already applied)');
+      }
+    }
 
     const io = req.io;
     if (io) {
