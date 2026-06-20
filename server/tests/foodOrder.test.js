@@ -7,7 +7,7 @@ describe('orderStatus', () => {
     it('includes all expected statuses', () => {
       const expected = [
         'pending', 'restaurant_accepted', 'preparing', 'ready_for_pickup',
-        'bidding_open', 'courier_assigned', 'picked_up', 'in_transit', 'delivered', 'cancelled',
+        'courier_searching', 'courier_assigned', 'picked_up', 'in_transit', 'delivered', 'cancelled',
       ];
       assert.deepStrictEqual(ORDER_STATUS_LIFECYCLE, expected);
     });
@@ -38,12 +38,12 @@ describe('orderStatus', () => {
       assert.doesNotThrow(() => assertStatusTransition('pending', 'cancelled'));
     });
 
-    it('allows restaurant_accepted -> bidding_open', () => {
-      assert.doesNotThrow(() => assertStatusTransition('restaurant_accepted', 'bidding_open'));
+    it('allows restaurant_accepted -> preparing', () => {
+      assert.doesNotThrow(() => assertStatusTransition('restaurant_accepted', 'preparing'));
     });
 
-    it('allows bidding_open -> courier_assigned', () => {
-      assert.doesNotThrow(() => assertStatusTransition('bidding_open', 'courier_assigned'));
+    it('allows courier_searching -> courier_assigned', () => {
+      assert.doesNotThrow(() => assertStatusTransition('courier_searching', 'courier_assigned'));
     });
 
     it('allows courier_assigned -> picked_up', () => {
