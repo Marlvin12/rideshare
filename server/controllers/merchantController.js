@@ -14,6 +14,11 @@ import FoodOrder from '../models/FoodOrder.js';
 import MerchantApplication from '../models/MerchantApplication.js';
 import User from '../models/User.js';
 import { BadRequestError, NotFoundError } from '../errors/index.js';
+import {
+  RIDESHARE_TO_MERCHANT_STATUS,
+  MERCHANT_TO_RIDESHARE_STATUS,
+  MERCHANT_ACTIVE_STATUSES,
+} from '../constants/merchantStatus.js';
 
 // ---------------------------------------------------------------------------
 // Serializers
@@ -57,25 +62,9 @@ function serializeMenuItem(m) {
   };
 }
 
-const RIDESHARE_TO_MERCHANT_STATUS = {
-  pending: 'pending',
-  restaurant_accepted: 'confirmed',
-  preparing: 'preparing',
-  ready_for_pickup: 'ready_for_pickup',
-  bidding_open: 'ready_for_pickup',
-  courier_assigned: 'courier_assigned',
-  picked_up: 'picked_up',
-  in_transit: 'in_transit',
-  delivered: 'delivered',
-  cancelled: 'cancelled',
-};
-
-const MERCHANT_TO_RIDESHARE_STATUS = {
-  confirmed: 'restaurant_accepted',
-  preparing: 'preparing',
-  ready_for_pickup: 'ready_for_pickup',
-  cancelled: 'cancelled',
-};
+// Status maps moved to constants/merchantStatus.js and cross-checked against the
+// canonical lifecycle by a test, so a future status rename can't silently leave a
+// stale entry here (it did: `bidding_open` -> `courier_searching`).
 
 function serializeOrder(o) {
   return {
@@ -316,9 +305,7 @@ export const getMerchantOrders = async (req, res) => {
     const rideshareStatus = MERCHANT_TO_RIDESHARE_STATUS[status];
     query.status = rideshareStatus ?? status;
   } else {
-    query.status = {
-      $in: ['pending', 'restaurant_accepted', 'preparing', 'ready_for_pickup', 'bidding_open'],
-    };
+    query.status = { $in: MERCHANT_ACTIVE_STATUSES };
   }
 
   const orders = await FoodOrder.find(query)
