@@ -8,7 +8,7 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }>
   restaurant_accepted: { label: 'Accepted', bg: '#DBEAFE', text: '#1E40AF' },
   preparing: { label: 'Preparing', bg: '#DBEAFE', text: '#1E40AF' },
   ready_for_pickup: { label: 'Ready', bg: '#FEE2E2', text: '#7f1d1d' },
-  bidding_open: { label: 'Finding courier', bg: '#E0E7FF', text: '#3730A3' },
+  courier_searching: { label: 'Finding courier', bg: '#E0E7FF', text: '#3730A3' },
   courier_assigned: { label: 'Courier assigned', bg: '#E0E7FF', text: '#3730A3' },
   picked_up: { label: 'Picked up', bg: '#E0E7FF', text: '#3730A3' },
   in_transit: { label: 'In transit', bg: '#E0E7FF', text: '#3730A3' },

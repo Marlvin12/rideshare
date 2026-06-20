@@ -20,7 +20,7 @@ import { getFoodOrderById, cancelFoodOrder } from '@/service/foodOrderService';
 import { useWS } from '@/service/WSProvider';
 import { useThemeStore } from '@/store/themeStore';
 
-const CANCELLABLE_STATUSES = ['pending', 'restaurant_accepted', 'preparing', 'ready_for_pickup', 'bidding_open'];
+const CANCELLABLE_STATUSES = ['pending', 'restaurant_accepted', 'preparing', 'ready_for_pickup', 'courier_searching'];
 
 const OrderTrackingScreen = () => {
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
@@ -115,7 +115,7 @@ const OrderTrackingScreen = () => {
         return 'Your food is being prepared';
       case 'ready_for_pickup':
         return 'Order is ready for pickup';
-      case 'bidding_open':
+      case 'courier_searching':
         return 'Finding a courier for your order';
       case 'courier_assigned':
         return 'Courier is on the way to pickup';
@@ -148,7 +148,7 @@ const OrderTrackingScreen = () => {
       case 'preparing':
         return prepMins != null ? `Est. ready in ${prepMins} min` : 'Your order is being prepared';
       case 'ready_for_pickup':
-      case 'bidding_open':
+      case 'courier_searching':
         return 'Looking for a courier to pick up your order';
       case 'courier_assigned':
         return 'Courier is heading to the restaurant';

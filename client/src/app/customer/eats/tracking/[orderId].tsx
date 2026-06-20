@@ -142,7 +142,7 @@ const OrderTrackingScreen = () => {
         return 'Your food is being prepared';
       case 'ready_for_pickup':
         return 'Order is ready for pickup';
-      case 'bidding_open':
+      case 'courier_searching':
         return 'Finding a courier for your order';
       case 'courier_assigned':
         return 'Courier is on the way to pickup';
