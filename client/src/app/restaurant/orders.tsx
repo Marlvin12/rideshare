@@ -24,7 +24,7 @@ const ACTIVE_STATUSES = [
   'restaurant_accepted',
   'preparing',
   'ready_for_pickup',
-  'bidding_open',
+  'courier_searching',
   'courier_assigned',
   'picked_up',
   'in_transit',

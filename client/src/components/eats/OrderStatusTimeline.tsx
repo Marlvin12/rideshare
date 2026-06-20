@@ -26,7 +26,7 @@ const STATUS_ORDER = [
   'restaurant_accepted',
   'preparing',
   'ready_for_pickup',
-  'bidding_open',
+  'courier_searching',
   'courier_assigned',
   'picked_up',
   'in_transit',
@@ -59,7 +59,7 @@ const OrderStatusTimeline: React.FC<OrderStatusTimelineProps> = ({
       return 'completed';
     }
     if (stepIndex === currentIndex || 
-        (step.status === 'picked_up' && ['bidding_open', 'courier_assigned'].includes(currentStatus))) {
+        (step.status === 'picked_up' && ['courier_searching', 'courier_assigned'].includes(currentStatus))) {
       return 'current';
     }
     return 'pending';
