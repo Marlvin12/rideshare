@@ -9,6 +9,7 @@ import {
   acceptOffer,
   getRideOffers,
   rateRide,
+  getRatings,
 } from '../controllers/ride.js';
 import validate, {
   createRideSchema,
@@ -32,5 +33,6 @@ router.patch('/offer/:rideId/:offerId/accept', acceptOffer);
 router.get('/offers/:rideId', getRideOffers);
 
 router.post('/rate/:rideId', validate(rateRideSchema), rateRide);
+router.get('/ratings', validate(paginationSchema, 'query'), getRatings);
 
 export default router;

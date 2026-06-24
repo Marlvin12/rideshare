@@ -148,3 +148,30 @@ export const submitRating = async (
     return { success: false };
   }
 };
+
+export interface RatingHistoryItem {
+  rideId: string;
+  date: string;
+  pickupAddress: string;
+  dropAddress: string;
+  fare: number;
+  counterpart: { _id: string; name: string; profilePhoto?: string } | null;
+  myRole: 'customer' | 'rider';
+  givenRating: number | null;
+  givenFeedback: string;
+  receivedRating: number | null;
+}
+
+export const getRatingHistory = async (page = 1, limit = 20) => {
+  try {
+    const res = await appAxios.get('/ride/ratings', { params: { page, limit } });
+    return {
+      success: true,
+      ratings: (res.data.ratings ?? []) as RatingHistoryItem[],
+      total: res.data.total ?? 0,
+      totalPages: res.data.totalPages ?? 1,
+    };
+  } catch {
+    return { success: false, ratings: [], total: 0, totalPages: 1 };
+  }
+};
